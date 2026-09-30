@@ -42,10 +42,9 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b %ERRORLEVEL%
 )
 
-copy /y "dist_installer\Instalador_Facturador_Saint_v2.4.exe" "Instalador_Facturador_Saint_v2.4.exe" >nul
 echo.
 echo ========================================================
 echo   COMPILACION Y GENERACION DE INSTALADOR EXITOSA!
-echo   Instalador: Instalador_Facturador_Saint_v2.4.exe
+echo   Ubicacion: dist_installer\Instalador_Facturador_Saint_v2.4.exe
 echo ========================================================
 pause
