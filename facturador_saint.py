@@ -1664,8 +1664,8 @@ class FacturadorApp:
         defaults = {
             "topmost": False,
             "press_f6": False,
-            "speed": "normal",
-            "countdown": 5,
+            "speed": "fast",
+            "countdown": 3,
             "auto_focus": True,
             "check_special_code": True,
             "price_list_mode": "precio_3",
