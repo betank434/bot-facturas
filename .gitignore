@@ -1,0 +1,22 @@
+# Archivos compilados y ejecutables
+build/
+dist/
+dist_installer/
+*.exe
+*.spec
+
+# Datos confidenciales y de clientes (FACTURAS REALES)
+facturas_pdf/*
+!facturas_pdf/.gitkeep
+facturas_json/*
+!facturas_json/.gitkeep
+cache_capturas/*
+!cache_capturas/.gitkeep
+
+# Temporales de Python y sistema
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
+.vscode/
+.idea/
