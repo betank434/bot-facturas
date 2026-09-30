@@ -2,7 +2,7 @@
 ; Genera el instalador oficial de Windows con accesos directos y desinstalador completo.
 
 #define MyAppName "Facturador Saint"
-#define MyAppVersion "2.4"
+#define MyAppVersion "2.52"
 #define MyAppPublisher "Saint Enterprise Automation"
 #define MyAppExeName "FacturadorSaint.exe"
 
@@ -36,18 +36,22 @@ Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 [Tasks]
 Name: "desktopicon"; Description: "Crear acceso directo a Facturador Saint en el Escritorio"; GroupDescription: "Accesos directos en el Escritorio:"
 Name: "desktopicon_pdf"; Description: "Crear acceso directo a la Carpeta Facturas PDF en el Escritorio (para arrastrar facturas)"; GroupDescription: "Accesos directos en el Escritorio:"
-Name: "desktopicon_json"; Description: "Crear acceso directo a la Carpeta Facturas JSON en el Escritorio"; GroupDescription: "Accesos directos en el Escritorio:"
 
 [InstallDelete]
 ; Limpiar solo la cache de capturas previas (mantener facturas del usuario seguras)
 Type: files; Name: "{app}\cache_capturas\*.*"
+; Eliminar acceso directo a facturas_json del escritorio si existía de versiones anteriores
+Type: files; Name: "{autodesktop}\Carpeta Facturas JSON.lnk"
 
 [Files]
-; Todos los archivos del ejecutable y dependencias generados por PyInstaller (excluyendo cualquier archivo residual en pdf y json)
-Source: "dist\FacturadorSaint\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "facturas_pdf\*,facturas_json\*,cache_capturas\*"
+; Todos los archivos del ejecutable y dependencias (excluyendo configuraciones para no sobrescribir clientes)
+Source: "dist\FacturadorSaint\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "facturas_pdf\*,facturas_json\*,cache_capturas\*,config_facturador.json,codigos_reemplazo.json"
+; Configuraciones y códigos de clientes: SOLO se instalan si no existen, preservando 100% sus datos al actualizar
+Source: "dist\FacturadorSaint\config_facturador.json"; DestDir: "{app}"; Flags: onlyifdoesntexist
+Source: "dist\FacturadorSaint\codigos_reemplazo.json"; DestDir: "{app}"; Flags: onlyifdoesntexist
 
 [Dirs]
-; Crear las carpetas de trabajo completamente vacias y con permisos completos
+; Crear las carpetas de trabajo con permisos completos
 Name: "{app}\facturas_pdf"; Permissions: users-full
 Name: "{app}\facturas_json"; Permissions: users-full
 Name: "{app}\cache_capturas"; Permissions: users-full
@@ -59,13 +63,9 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDi
 ; Acceso directo a la carpeta de PDFs en el Escritorio
 Name: "{autodesktop}\Carpeta Facturas PDF"; Filename: "{app}\facturas_pdf"; WorkingDir: "{app}\facturas_pdf"; Tasks: desktopicon_pdf
 
-; Acceso directo a la carpeta de JSONs en el Escritorio
-Name: "{autodesktop}\Carpeta Facturas JSON"; Filename: "{app}\facturas_json"; WorkingDir: "{app}\facturas_json"; Tasks: desktopicon_json
-
 ; Accesos directos en el Menu Inicio
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
 Name: "{group}\Carpeta Facturas PDF"; Filename: "{app}\facturas_pdf"
-Name: "{group}\Carpeta Facturas JSON"; Filename: "{app}\facturas_json"
 Name: "{group}\Desinstalar {#MyAppName}"; Filename: "{uninstallexe}"
 
 [Run]

@@ -1639,9 +1639,28 @@ class FacturadorApp:
                 with open(self.config_file, "r", encoding="utf-8") as fp:
                     data = json.load(fp)
                 if isinstance(data, dict):
-                    defaults.update(data)
+                    # Fusión inteligente: preservar 100% las opciones del cliente
+                    # y agregar únicamente nuevas claves si se introducen en nuevas versiones
+                    needs_save = False
+                    for k, v in defaults.items():
+                        if k not in data:
+                            data[k] = v
+                            needs_save = True
+                    if needs_save:
+                        try:
+                            with open(self.config_file, "w", encoding="utf-8") as fp:
+                                json.dump(data, fp, indent=2, ensure_ascii=False)
+                        except Exception:
+                            pass
+                    return data
             except Exception:
                 pass
+
+        try:
+            with open(self.config_file, "w", encoding="utf-8") as fp:
+                json.dump(defaults, fp, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
         return defaults
 
     def _load_replacement_rules(self) -> list:
@@ -1664,6 +1683,28 @@ class FacturadorApp:
                 with open(self.rules_file, "r", encoding="utf-8") as fp:
                     data = json.load(fp)
                 if isinstance(data, list) and len(data) > 0:
+                    # Fusión inteligente de reglas de intercambio:
+                    # 1. Conservar intactas todas las reglas existentes del cliente con sus estados
+                    existing_origins = {
+                        str(r.get("codigo_origen", "")).strip(): r
+                        for r in data if isinstance(r, dict) and r.get("codigo_origen")
+                    }
+                    needs_save = False
+                    # 2. Si el bot añade una nueva regla por defecto en una actualización,
+                    # se añade sin tocar ninguna de las configuraciones previas del usuario
+                    for def_r in default_rules:
+                        src = str(def_r.get("codigo_origen", "")).strip()
+                        if src and src not in existing_origins:
+                            data.append(def_r)
+                            needs_save = True
+
+                    if needs_save:
+                        try:
+                            with open(self.rules_file, "w", encoding="utf-8") as fp:
+                                json.dump(data, fp, indent=2, ensure_ascii=False)
+                        except Exception:
+                            pass
+
                     return data
             except Exception:
                 pass
