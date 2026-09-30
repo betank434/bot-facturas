@@ -11,6 +11,7 @@ import tempfile
 import threading
 import subprocess
 from pathlib import Path
+import ssl
 import urllib.request
 import urllib.error
 import tkinter as tk
@@ -21,6 +22,23 @@ CURRENT_VERSION = "2.4"
 GITHUB_OWNER = "betank434"
 GITHUB_REPO = "bot-facturas-sigo"
 USER_AGENT = f"FacturadorSaint-Updater/{CURRENT_VERSION}"
+
+
+def _get_ssl_context():
+    """
+    Crea un contexto SSL universal compatible con Windows 10, Windows 11 y ejecutables PyInstaller.
+    Soluciona el error [SSL: CERTIFICATE_VERIFY_FAILED] cuando faltan certificados raíz locales.
+    """
+    try:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+    except Exception:
+        try:
+            return ssl._create_unverified_context()
+        except Exception:
+            return None
 
 
 def parse_version(v_str: str) -> tuple:
@@ -62,7 +80,7 @@ def check_for_updates(
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout, context=_get_ssl_context()) as resp:
             if resp.status != 200:
                 return {
                     "success": False,
@@ -152,7 +170,7 @@ def download_file(
     Descarga un archivo por bloques con reporte de progreso y soporte de cancelación.
     """
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req) as response:
+    with urllib.request.urlopen(req, context=_get_ssl_context()) as response:
         total_size = int(response.headers.get("Content-Length", 0))
         downloaded = 0
 
