@@ -1600,12 +1600,12 @@ class FacturadorApp:
             on_f12=self._hotkey_stop
         )
         
-        # Archivo de configuración persistente
-        self.config_file = self.base_dir / "config_facturador.json"
+        # Archivo de configuración persistente con resolución a prueba de permisos
+        self.config_file = self._resolve_storage_file("config_facturador.json")
         self.saved_cfg = self._load_saved_config()
         
         # Archivo de reglas de intercambio de códigos persistente
-        self.rules_file = self.base_dir / "codigos_reemplazo.json"
+        self.rules_file = self._resolve_storage_file("codigos_reemplazo.json")
         self.replacement_rules = self._load_replacement_rules()
         
         self._build_styles()
@@ -1618,6 +1618,47 @@ class FacturadorApp:
         
         # Verificación automática de actualizaciones al abrir (en segundo plano sin congelar la app)
         self.root.after(1500, self._auto_check_updates)
+
+    def _resolve_storage_file(self, filename: str) -> Path:
+        r"""
+        Garantiza que la ruta para guardar la configuración o reglas sea siempre escribible.
+        Si la aplicación está instalada en una carpeta protegida del sistema (como C:\Program Files)
+        y el usuario no tiene permisos de administrador, redirige automáticamente el guardado a
+        %LOCALAPPDATA%\FacturadorSaint\, preservando los archivos existentes y permitiendo que
+        las configuraciones y activaciones de códigos se guarden de forma 100% permanente.
+        """
+        user_dir = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "FacturadorSaint"
+        user_file = user_dir / filename
+        base_file = self.base_dir / filename
+
+        # 1. Si ya existe en LOCALAPPDATA (configuración previa del usuario), esa tiene prioridad
+        if user_file.exists():
+            return user_file
+
+        # 2. Si base_dir es escribible, usar base_file directamente
+        try:
+            if base_file.exists():
+                with open(base_file, "a", encoding="utf-8"):
+                    pass
+                return base_file
+            else:
+                test_f = self.base_dir / ".test_write.tmp"
+                with open(test_f, "w", encoding="utf-8") as f:
+                    f.write("1")
+                test_f.unlink()
+                return base_file
+        except Exception:
+            pass
+
+        # 3. base_dir está protegido contra escritura: inicializar en LOCALAPPDATA
+        try:
+            user_dir.mkdir(parents=True, exist_ok=True)
+            if base_file.exists():
+                import shutil
+                shutil.copy2(base_file, user_file)
+            return user_file
+        except Exception:
+            return base_file
 
     def _load_saved_config(self) -> dict:
         defaults = {
@@ -1650,6 +1691,15 @@ class FacturadorApp:
                         try:
                             with open(self.config_file, "w", encoding="utf-8") as fp:
                                 json.dump(data, fp, indent=2, ensure_ascii=False)
+                        except PermissionError:
+                            user_dir = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "FacturadorSaint"
+                            user_dir.mkdir(parents=True, exist_ok=True)
+                            self.config_file = user_dir / "config_facturador.json"
+                            try:
+                                with open(self.config_file, "w", encoding="utf-8") as fp:
+                                    json.dump(data, fp, indent=2, ensure_ascii=False)
+                            except Exception:
+                                pass
                         except Exception:
                             pass
                     return data
@@ -1659,6 +1709,15 @@ class FacturadorApp:
         try:
             with open(self.config_file, "w", encoding="utf-8") as fp:
                 json.dump(defaults, fp, indent=2, ensure_ascii=False)
+        except PermissionError:
+            user_dir = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "FacturadorSaint"
+            user_dir.mkdir(parents=True, exist_ok=True)
+            self.config_file = user_dir / "config_facturador.json"
+            try:
+                with open(self.config_file, "w", encoding="utf-8") as fp:
+                    json.dump(defaults, fp, indent=2, ensure_ascii=False)
+            except Exception:
+                pass
         except Exception:
             pass
         return defaults
@@ -1702,6 +1761,15 @@ class FacturadorApp:
                         try:
                             with open(self.rules_file, "w", encoding="utf-8") as fp:
                                 json.dump(data, fp, indent=2, ensure_ascii=False)
+                        except PermissionError:
+                            user_dir = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "FacturadorSaint"
+                            user_dir.mkdir(parents=True, exist_ok=True)
+                            self.rules_file = user_dir / "codigos_reemplazo.json"
+                            try:
+                                with open(self.rules_file, "w", encoding="utf-8") as fp:
+                                    json.dump(data, fp, indent=2, ensure_ascii=False)
+                            except Exception:
+                                pass
                         except Exception:
                             pass
 
@@ -1711,14 +1779,30 @@ class FacturadorApp:
         try:
             with open(self.rules_file, "w", encoding="utf-8") as fp:
                 json.dump(default_rules, fp, indent=2, ensure_ascii=False)
+        except PermissionError:
+            user_dir = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "FacturadorSaint"
+            user_dir.mkdir(parents=True, exist_ok=True)
+            self.rules_file = user_dir / "codigos_reemplazo.json"
+            try:
+                with open(self.rules_file, "w", encoding="utf-8") as fp:
+                    json.dump(default_rules, fp, indent=2, ensure_ascii=False)
+            except Exception:
+                pass
         except Exception:
             pass
         return default_rules
 
     def _save_replacement_rules(self):
         try:
-            with open(self.rules_file, "w", encoding="utf-8") as fp:
-                json.dump(self.replacement_rules, fp, indent=2, ensure_ascii=False)
+            try:
+                with open(self.rules_file, "w", encoding="utf-8") as fp:
+                    json.dump(self.replacement_rules, fp, indent=2, ensure_ascii=False)
+            except PermissionError:
+                user_dir = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "FacturadorSaint"
+                user_dir.mkdir(parents=True, exist_ok=True)
+                self.rules_file = user_dir / "codigos_reemplazo.json"
+                with open(self.rules_file, "w", encoding="utf-8") as fp:
+                    json.dump(self.replacement_rules, fp, indent=2, ensure_ascii=False)
         except Exception as ex:
             self._log(f"[ERROR] No se pudo guardar codigos_reemplazo.json: {ex}")
 
@@ -1738,10 +1822,17 @@ class FacturadorApp:
                 "price_currency": self.var_price_curr.get(),
                 "price_nav": self.var_price_nav.get()
             }
-            with open(self.config_file, "w", encoding="utf-8") as fp:
-                json.dump(cfg, fp, indent=2, ensure_ascii=False)
-        except Exception:
-            pass
+            try:
+                with open(self.config_file, "w", encoding="utf-8") as fp:
+                    json.dump(cfg, fp, indent=2, ensure_ascii=False)
+            except PermissionError:
+                user_dir = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "FacturadorSaint"
+                user_dir.mkdir(parents=True, exist_ok=True)
+                self.config_file = user_dir / "config_facturador.json"
+                with open(self.config_file, "w", encoding="utf-8") as fp:
+                    json.dump(cfg, fp, indent=2, ensure_ascii=False)
+        except Exception as ex:
+            self._log(f"[AVISO] Error al guardar configuración: {ex}")
 
     def _attach_config_traces(self):
         try:

@@ -2,7 +2,7 @@
 ; Genera el instalador oficial de Windows con accesos directos y desinstalador completo.
 
 #define MyAppName "Facturador Saint"
-#define MyAppVersion "2.53"
+#define MyAppVersion "2.54"
 #define MyAppPublisher "Saint Enterprise Automation"
 #define MyAppExeName "FacturadorSaint.exe"
 
@@ -47,11 +47,12 @@ Type: files; Name: "{autodesktop}\Carpeta Facturas JSON.lnk"
 ; Todos los archivos del ejecutable y dependencias (excluyendo configuraciones para no sobrescribir clientes)
 Source: "dist\FacturadorSaint\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "facturas_pdf\*,facturas_json\*,cache_capturas\*,config_facturador.json,codigos_reemplazo.json"
 ; Configuraciones y códigos de clientes: SOLO se instalan si no existen, preservando 100% sus datos al actualizar
-Source: "dist\FacturadorSaint\config_facturador.json"; DestDir: "{app}"; Flags: onlyifdoesntexist
-Source: "dist\FacturadorSaint\codigos_reemplazo.json"; DestDir: "{app}"; Flags: onlyifdoesntexist
+Source: "dist\FacturadorSaint\config_facturador.json"; DestDir: "{app}"; Flags: onlyifdoesntexist; Permissions: users-full
+Source: "dist\FacturadorSaint\codigos_reemplazo.json"; DestDir: "{app}"; Flags: onlyifdoesntexist; Permissions: users-full
 
 [Dirs]
-; Crear las carpetas de trabajo con permisos completos
+; Crear las carpetas de trabajo y directorio principal con permisos completos
+Name: "{app}"; Permissions: users-full
 Name: "{app}\facturas_pdf"; Permissions: users-full
 Name: "{app}\facturas_json"; Permissions: users-full
 Name: "{app}\cache_capturas"; Permissions: users-full
@@ -69,4 +70,6 @@ Name: "{group}\Carpeta Facturas PDF"; Filename: "{app}\facturas_pdf"
 Name: "{group}\Desinstalar {#MyAppName}"; Filename: "{uninstallexe}"
 
 [Run]
+; Otorgar permisos completos a todos los usuarios de Windows para garantizar persistencia sin errores
+Filename: "icacls.exe"; Parameters: """{app}"" /grant *S-1-5-32-545:(OI)(CI)F /T /C /Q"; Flags: runhidden
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall
