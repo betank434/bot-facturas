@@ -1656,7 +1656,7 @@ class FacturadorApp:
                 "codigo_origen": "034000491681",
                 "codigo_destino": "469000491681",
                 "descripcion": "REESE'S WHITE 4 SNACK SIZE 62G",
-                "activo": True
+                "activo": False
             }
         ]
         if self.rules_file.exists():
@@ -2066,15 +2066,8 @@ class FacturadorApp:
         )
         self.btn_update.pack(side="left", padx=(0, 8), pady=6)
         
-        self.var_topmost = tk.BooleanVar(value=self.saved_cfg.get("topmost", False))
-        self.root.wm_attributes("-topmost", self.var_topmost.get())
-        self.root.after(100, self._toggle_topmost)
-        chk_top = tk.Checkbutton(head_bar, text="📌 Siempre visible", variable=self.var_topmost,
-                                 command=self._toggle_topmost, font=("Segoe UI", 9, "bold"),
-                                 fg="#f8fafc", bg="#0f172a", selectcolor="#1e293b",
-                                 activebackground="#0f172a", activeforeground="#f8fafc",
-                                 cursor="hand2")
-        chk_top.pack(side="right", padx=12, pady=6)
+        self.var_topmost = tk.BooleanVar(value=False)
+        self.root.wm_attributes("-topmost", False)
 
         # 2. Notebook principal con pestañas modernas
         self.notebook = ttk.Notebook(self.root)

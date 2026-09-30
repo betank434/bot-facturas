@@ -4,10 +4,10 @@
   "speed": "fast",
   "countdown": 3,
   "auto_focus": true,
-  "check_special_code": false,
+  "check_special_code": true,
   "price_list_mode": "precio_3",
   "verify_price_by_ocr": true,
-  "check_price": false,
+  "check_price": true,
   "price_alert_mode": "summary",
   "price_currency": "usd",
   "price_nav": "enter"
