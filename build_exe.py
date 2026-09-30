@@ -33,6 +33,7 @@ def compilar():
         "--hidden-import=extractor",
         "--hidden-import=saint_keyboard_engine",
         "--hidden-import=winocr",
+        "--hidden-import=updater",
         f"--distpath={str(dist_dir)}",
         f"--workpath={str(build_dir)}",
         "--noconfirm",

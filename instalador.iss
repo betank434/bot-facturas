@@ -27,6 +27,8 @@ WizardStyle=modern
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog commandline
 DisableProgramGroupPage=auto
+CloseApplications=yes
+RestartApplications=no
 
 [Languages]
 Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
@@ -37,9 +39,7 @@ Name: "desktopicon_pdf"; Description: "Crear acceso directo a la Carpeta Factura
 Name: "desktopicon_json"; Description: "Crear acceso directo a la Carpeta Facturas JSON en el Escritorio"; GroupDescription: "Accesos directos en el Escritorio:"
 
 [InstallDelete]
-; Garantizar que las carpetas queden totalmente limpias sin archivos de prueba previos
-Type: files; Name: "{app}\facturas_pdf\*.*"
-Type: files; Name: "{app}\facturas_json\*.*"
+; Limpiar solo la cache de capturas previas (mantener facturas del usuario seguras)
 Type: files; Name: "{app}\cache_capturas\*.*"
 
 [Files]
@@ -69,4 +69,4 @@ Name: "{group}\Carpeta Facturas JSON"; Filename: "{app}\facturas_json"
 Name: "{group}\Desinstalar {#MyAppName}"; Filename: "{uninstallexe}"
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall

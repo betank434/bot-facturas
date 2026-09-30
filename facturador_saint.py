@@ -18,6 +18,7 @@ from tkinter import ttk, messagebox, filedialog
 import pyperclip
 import subprocess
 import extractor
+import updater
 
 try:
     from PIL import Image, ImageOps
@@ -1614,6 +1615,9 @@ class FacturadorApp:
         self._refresh_rules_table()
         
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        
+        # Verificación automática de actualizaciones al abrir (en segundo plano sin congelar la app)
+        self.root.after(1500, self._auto_check_updates)
 
     def _load_saved_config(self) -> dict:
         defaults = {
@@ -2048,9 +2052,19 @@ class FacturadorApp:
                              font=("Segoe UI", 10, "bold"), fg="#f8fafc", bg="#0f172a")
         lbl_title.pack(side="left", padx=4, pady=6)
         
-        lbl_pro_badge = tk.Label(head_bar, text="PRO v2.4", font=("Segoe UI", 8, "bold"),
+        lbl_pro_badge = tk.Label(head_bar, text=f"PRO v{updater.CURRENT_VERSION}", font=("Segoe UI", 8, "bold"),
                                  fg="#10b981", bg="#064e3b", padx=6, pady=1)
         lbl_pro_badge.pack(side="left", padx=8, pady=6)
+
+        self.btn_update = tk.Button(
+            head_bar,
+            text="🔄 Buscar Actualización",
+            font=("Segoe UI", 8, "bold"),
+            fg="#94a3b8", bg="#1e293b", activebackground="#334155", activeforeground="#f8fafc",
+            relief="flat", cursor="hand2", padx=8, pady=1,
+            command=self._manual_check_updates
+        )
+        self.btn_update.pack(side="left", padx=(0, 8), pady=6)
         
         self.var_topmost = tk.BooleanVar(value=self.saved_cfg.get("topmost", False))
         self.root.wm_attributes("-topmost", self.var_topmost.get())
@@ -3863,6 +3877,58 @@ class FacturadorApp:
         self.txt_log.insert("end", f"{text}\n")
         self.txt_log.see("end")
         self.txt_log.configure(state="disabled")
+
+    def _auto_check_updates(self):
+        """Verificación automática silenciosa de actualizaciones al abrir el programa."""
+        def worker():
+            res = updater.check_for_updates()
+            if res.get("success") and res.get("has_update"):
+                self.root.after(0, lambda: self._on_update_found(res, auto=True))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _manual_check_updates(self):
+        """Verificación manual invocada por el usuario desde la cabecera."""
+        self.btn_update.configure(text="⏳ Buscando...", state="disabled")
+        def worker():
+            res = updater.check_for_updates()
+            self.root.after(0, lambda: self._on_manual_check_result(res))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_manual_check_result(self, res: dict):
+        self.btn_update.configure(text="🔄 Buscar Actualización", state="normal")
+        if not res.get("success"):
+            err = res.get("error", "Error desconocido de conexión.")
+            messagebox.showwarning("Actualizaciones", f"No se pudo consultar el servidor de GitHub:\n{err}", parent=self.root)
+            return
+
+        if res.get("has_update"):
+            self._on_update_found(res, auto=False)
+        else:
+            msg = res.get("message", f"Ya tienes instalada la versión más reciente (v{updater.CURRENT_VERSION}).")
+            messagebox.showinfo("Actualizaciones", f"{msg}\n¡Todo está al día!", parent=self.root)
+
+    def _on_update_found(self, update_info: dict, auto: bool = False):
+        latest = update_info.get("latest_version", "")
+        # Resaltar botón en la cabecera con estilo llamativo
+        self.btn_update.configure(
+            text=f"🚀 ¡Actualizar a {latest}!",
+            fg="#ffffff",
+            bg="#0284c7",
+            activebackground="#0369a1",
+            activeforeground="#ffffff",
+            state="normal"
+        )
+        # Abrir ventana modal con 1 clic
+        updater.UpdateModal(self.root, update_info, on_install_callback=self._before_update_install)
+
+    def _before_update_install(self):
+        """Detiene de forma segura el motor y atajos antes de reemplazar el ejecutable."""
+        try:
+            if self.engine.running:
+                self.engine.stop()
+            self.engine.stop_hotkeys()
+        except Exception:
+            pass
 
     def _on_close(self):
         if self.engine.running:
