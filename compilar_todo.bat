@@ -1,12 +1,75 @@
 @echo off
+setlocal EnableDelayedExpansion
 cd /d "%~dp0"
 title Compilador de Facturador Saint (.exe + Instalador)
+
 echo ========================================================
 echo   COMPILANDO FACTURADOR SAINT (.EXE + INSTALADOR)
 echo ========================================================
 echo.
+
+:: 1. Detectar Python correcto (evitando entornos virtuales de terceros como hermes-agent)
+set "PYTHON_CMD="
+
+py -3 --version >nul 2>&1
+if !ERRORLEVEL! EQU 0 (
+    set "PYTHON_CMD=py -3"
+    goto :PYTHON_OK
+)
+
+for %%P in (
+    "%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+    "%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+    "%ProgramFiles%\Python312\python.exe"
+    "%ProgramFiles%\Python311\python.exe"
+    "C:\Python312\python.exe"
+    "C:\Python311\python.exe"
+) do (
+    if exist "%%~P" (
+        set "PYTHON_CMD="%%~P""
+        goto :PYTHON_OK
+    )
+)
+
+for /f "delims=" %%I in ('where.exe python 2^>nul') do (
+    echo %%I | findstr /i /c:"hermes" /c:"Temp" >nul
+    if !ERRORLEVEL! NEQ 0 (
+        set "PYTHON_CMD="%%I""
+        goto :PYTHON_OK
+    )
+)
+
+for /f "delims=" %%I in ('where.exe python 2^>nul') do (
+    set "PYTHON_CMD="%%I""
+    goto :PYTHON_OK
+)
+
+:PYTHON_OK
+if not defined PYTHON_CMD (
+    echo [ERROR] No se encontro Python en el sistema.
+    echo Por favor ejecuta primero INSTALADOR_DEPENDENCIAS_PC.bat
+    pause
+    exit /b 1
+)
+
+:: 2. Auto-verificar si PyInstaller está instalado, y si falta instalarlo de inmediato
+%PYTHON_CMD% -c "import PyInstaller" >nul 2>&1
+if !ERRORLEVEL! NEQ 0 (
+    echo [AVISO] PyInstaller no esta instalado en este Python.
+    echo Instalando librerias necesarias automaticamente...
+    if exist "%~dp0requirements.txt" (
+        %PYTHON_CMD% -m pip install -r "%~dp0requirements.txt"
+    ) else (
+        %PYTHON_CMD% -m pip install pymupdf pyperclip pillow openpyxl pynput winocr pyinstaller
+    )
+    if !ERRORLEVEL! NEQ 0 (
+        %PYTHON_CMD% -m pip install pyinstaller
+    )
+)
+
+echo.
 echo Paso 1: Generando icono oficial app_icon.ico...
-python crear_icono.py
+%PYTHON_CMD% crear_icono.py
 if %ERRORLEVEL% NEQ 0 (
     echo Error al generar icono.
     pause
@@ -15,7 +78,7 @@ if %ERRORLEVEL% NEQ 0 (
 
 echo.
 echo Paso 2: Compilando FacturadorSaint.exe con PyInstaller...
-python build_exe.py
+%PYTHON_CMD% build_exe.py
 if %ERRORLEVEL% NEQ 0 (
     echo Error al compilar ejecutable con PyInstaller.
     pause
@@ -24,13 +87,19 @@ if %ERRORLEVEL% NEQ 0 (
 
 echo.
 echo Paso 3: Generando Instalador con Inno Setup...
-set "ISCC=C:\Users\ofici\AppData\Local\Programs\Inno Setup 6\ISCC.exe"
-if not exist "%ISCC%" (
-    for /f "tokens=*" %%i in ('where ISCC.exe 2^>nul') do set "ISCC=%%i"
+set "ISCC="
+if exist "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" set "ISCC=%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe"
+if not defined ISCC if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" set "ISCC=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
+if not defined ISCC if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe" set "ISCC=%ProgramFiles%\Inno Setup 6\ISCC.exe"
+if not defined ISCC (
+    for /f "delims=" %%I in ('where.exe ISCC.exe 2^>nul') do set "ISCC=%%I"
 )
 
-if not exist "%ISCC%" (
-    echo No se encontro ISCC.exe de Inno Setup en el sistema.
+if not defined ISCC (
+    echo.
+    echo [ERROR] No se encontro ISCC.exe de Inno Setup 6.
+    echo Puedes instalarlo ejecutando INSTALADOR_DEPENDENCIAS_PC.bat
+    echo o descargandolo desde: https://jrsoftware.org/isdl.php
     pause
     exit /b 1
 )
@@ -45,6 +114,6 @@ if %ERRORLEVEL% NEQ 0 (
 echo.
 echo ========================================================
 echo   COMPILACION Y GENERACION DE INSTALADOR EXITOSA!
-echo   Ubicacion: dist_installer\Instalador_Facturador_Saint_v2.4.exe
+echo   Ubicacion: dist_installer\
 echo ========================================================
 pause
