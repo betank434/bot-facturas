@@ -97,9 +97,24 @@ if not defined ISCC (
 
 if not defined ISCC (
     echo.
-    echo [ERROR] No se encontro ISCC.exe de Inno Setup 6.
-    echo Puedes instalarlo ejecutando INSTALADOR_DEPENDENCIAS_PC.bat
-    echo o descargandolo desde: https://jrsoftware.org/isdl.php
+    echo [AVISO] Inno Setup 6 no esta instalado en este equipo.
+    echo Instalando Inno Setup 6 automaticamente con winget...
+    winget install InnoSetup.InnoSetup --accept-package-agreements --accept-source-agreements
+    
+    :: Volver a buscar ISCC.exe tras la instalacion
+    if exist "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" set "ISCC=%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe"
+    if not defined ISCC if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" set "ISCC=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
+    if not defined ISCC if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe" set "ISCC=%ProgramFiles%\Inno Setup 6\ISCC.exe"
+    if not defined ISCC (
+        for /f "delims=" %%I in ('where.exe ISCC.exe 2^>nul') do set "ISCC=%%I"
+    )
+)
+
+if not defined ISCC (
+    echo.
+    echo [ERROR] No se pudo encontrar o instalar Inno Setup 6.
+    echo Por favor descargalo e instalalo manualmente desde:
+    echo https://jrsoftware.org/isdl.php
     pause
     exit /b 1
 )
