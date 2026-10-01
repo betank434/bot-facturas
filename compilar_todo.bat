@@ -98,8 +98,14 @@ if not defined ISCC (
 if not defined ISCC (
     echo.
     echo [AVISO] Inno Setup 6 no esta instalado en este equipo.
-    echo Instalando Inno Setup 6 automaticamente con winget...
-    winget install InnoSetup.InnoSetup --accept-package-agreements --accept-source-agreements
+    echo Instalando Inno Setup 6 automaticamente...
+    winget install JRSoftware.InnoSetup --accept-package-agreements --accept-source-agreements
+    
+    :: Si winget falla o no tiene catalogo actualizado, descargar directamente
+    if !ERRORLEVEL! NEQ 0 (
+        echo [INFO] Descargando instalador oficial de Inno Setup...
+        powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; (New-Object Net.WebClient).DownloadFile('https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe', '$env:TEMP\innosetup.exe'); Start-Process '$env:TEMP\innosetup.exe' -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-' -Wait"
+    )
     
     :: Volver a buscar ISCC.exe tras la instalacion
     if exist "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" set "ISCC=%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe"

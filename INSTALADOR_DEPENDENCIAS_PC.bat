@@ -135,11 +135,19 @@ if %INNO_FOUND% EQU 1 (
     set /p INST_INNO="Opcion - presiona S y Enter para instalar, o N para omitir: "
     set "PRIMERA_LETRA=!INST_INNO:~0,1!"
     if /i "!PRIMERA_LETRA!"=="S" (
-        echo Instalando Inno Setup 6 con winget...
-        winget install InnoSetup.InnoSetup --accept-package-agreements --accept-source-agreements
+        echo Instalando Inno Setup 6...
+        winget install JRSoftware.InnoSetup --accept-package-agreements --accept-source-agreements
+        if !ERRORLEVEL! NEQ 0 (
+            echo Descargando instalador oficial directamente...
+            powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; (New-Object Net.WebClient).DownloadFile('https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe', '$env:TEMP\innosetup.exe'); Start-Process '$env:TEMP\innosetup.exe' -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-' -Wait"
+        )
     ) else if /i "!PRIMERA_LETRA!"=="Y" (
-        echo Instalando Inno Setup 6 con winget...
-        winget install InnoSetup.InnoSetup --accept-package-agreements --accept-source-agreements
+        echo Instalando Inno Setup 6...
+        winget install JRSoftware.InnoSetup --accept-package-agreements --accept-source-agreements
+        if !ERRORLEVEL! NEQ 0 (
+            echo Descargando instalador oficial directamente...
+            powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; (New-Object Net.WebClient).DownloadFile('https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe', '$env:TEMP\innosetup.exe'); Start-Process '$env:TEMP\innosetup.exe' -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-' -Wait"
+        )
     )
 )
 echo.
