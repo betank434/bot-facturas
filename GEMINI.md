@@ -2,12 +2,15 @@
 
 Ver detalles completos y arquitectura en [AGENTS.md](file:///c:/Users/ofici/Desktop/bot%20facturas%20sigo/bot%20facturas/AGENTS.md).
 
-### Resumen Rápido para el Agente:
+### Resumen Rápido para el Asistente / Agente:
 1. **Repositorio**: `https://github.com/betank434/bot-facturas.git` (Owner: `betank434`, Repo: `bot-facturas`).
-2. **Subir versión**: SIEMPRE incrementar la versión en `updater.py` y `instalador.iss`. NUNCA repetir una versión ya publicada.
-3. **Compilación**:
-   - `python build_exe.py`
-   - Inno Setup `ISCC.exe instalador.iss`
-4. **Persistencia**:
-   - Todo guardado de configuración usa `_resolve_storage_file()` con fallback a `%LOCALAPPDATA%\FacturadorSaint\`.
-   - La fusión inteligente nunca sobrescribe ajustes ni estados (`activo`) de clientes en actualizaciones; solo añade opciones o códigos nuevos.
+2. **Subir versión**: SIEMPRE incrementar la versión en `updater.py` y `instalador.iss`. NUNCA repetir una versión ya publicada en GitHub Releases.
+3. **Scripts Principales**:
+   - `INSTALADOR_DEPENDENCIAS_PC.bat`: Prepara cualquier PC desde cero (Python, dependencias y herramientas).
+   - `compilar_todo.bat`: Compilación completa desatendida (Icono + PyInstaller + Inno Setup).
+   - `ejecutar_facturador.bat`: Ejecución directa del código fuente con autodetección de Python.
+4. **Persistencia y Permisos**:
+   - Todo guardado de configuración usa `_resolve_storage_file()` con fallback transparente a `%LOCALAPPDATA%\FacturadorSaint\`.
+   - La fusión inteligente (Smart Merge) nunca sobrescribe ajustes ni estados (`activo`) de clientes en actualizaciones; solo añade opciones o códigos nuevos.
+5. **Git Push**:
+   - Los commits se realizan localmente; la sincronización a GitHub se hace mediante 1 clic en GitHub Desktop (`Push origin`).

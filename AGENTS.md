@@ -13,19 +13,25 @@ Cualquier agente que trabaje en este repositorio en cualquier PC debe seguir est
 - **Rama principal**: `main`
 - **Herramienta recomendada**: GitHub Desktop o Git CLI.
 - **Ruta de Git en GitHub Desktop**: `C:\Users\<Usuario>\AppData\Local\GitHubDesktop\app-*\resources\app\git\cmd\git.exe`
+- **Protocolo de subida (Push)**: Para evitar que comandos de terminal se queden colgados esperando autenticación gráfica de Windows (`git-credential-manager`), el asistente realiza commits locales y el usuario pulsa **Push origin** en GitHub Desktop (1 clic).
 
 ---
 
-## 2. Dependencias del Entorno
+## 2. Dependencias del Entorno y Preparación de Nuevas PCs
 
-- **Python**: 3.12+ (x64)
-- **Librerías requeridas**:
-  ```bash
-  pip install pymupdf pyperclip pillow openpyxl pynput winocr pyinstaller
-  ```
-- **Compilador de Instalador**: Inno Setup 6
-  - Ruta típica: `C:\Users\<Usuario>\AppData\Local\Programs\Inno Setup 6\ISCC.exe`
-  - O bien: `C:\Program Files (x86)\Inno Setup 6\ISCC.exe`
+- **Script Automatizado de Instalación**:
+  Ejecutar con doble clic: `INSTALADOR_DEPENDENCIAS_PC.bat`
+  - Detecta e instala Python 3.12 (evitando venvs de terceros como `hermes-agent`).
+  - Restaura automáticamente `pip` si está ausente mediante `ensurepip` o `get-pip.py`.
+  - Instala todas las dependencias desde `requirements.txt`:
+    - `pymupdf>=1.23.0` (lectura y extracción de facturas PDF)
+    - `pyperclip>=1.8.2` (comunicación con portapapeles)
+    - `pillow>=10.0.0` (procesamiento de imágenes de artículos)
+    - `openpyxl>=3.1.2` (soporte y auditoría Excel)
+    - `pynput>=1.7.6` (control y atajos F8, F7, F12)
+    - `winocr>=0.0.14` (OCR nativo de Windows 10/11 sin dependencias externas)
+    - `pyinstaller>=6.0.0` (compilación a ejecutable nativo de Windows)
+  - Detecta e instala Inno Setup 6 (winget: `JRSoftware.InnoSetup` o descarga directa oficial de GitHub).
 
 ---
 
@@ -35,27 +41,27 @@ Cualquier agente que trabaje en este repositorio en cualquier PC debe seguir est
 - La aplicación se instala frecuentemente en `C:\Program Files\Facturador Saint`.
 - Por políticas de seguridad de Windows, usuarios estándar **NO tienen permiso de escritura** en `C:\Program Files`.
 - Por tanto, la función `_resolve_storage_file(filename)` en `facturador_saint.py`:
-  1. Comprueba si el archivo ya existe en `%LOCALAPPDATA%\FacturadorSaint\`. Si existe, lo usa.
+  1. Comprueba si el archivo ya existe en `%LOCALAPPDATA%\FacturadorSaint\`. Si existe, lo usa con máxima prioridad.
   2. Si no, comprueba si `base_dir` es escribible. Si lo es, usa `base_dir`.
-  3. Si `base_dir` está protegido (solo lectura), copia los archivos base a `%LOCALAPPDATA%\FacturadorSaint\` y opera allí con **100% permisos garantizados**.
+  3. Si `base_dir` está protegido (solo lectura), copia los archivos base a `%LOCALAPPDATA%\FacturadorSaint\` y opera allí con **100% permisos garantizados para cualquier usuario**.
 - `_save_user_config()` y `_save_replacement_rules()` atrapan `PermissionError` y redirigen automáticamente a `%LOCALAPPDATA%\FacturadorSaint\`.
 
 ### B. Fusión Inteligente de Configuraciones (Smart Merge)
 - **Nunca sobrescribir los ajustes del cliente en una actualización**:
-  - `_load_saved_config()`: Preserva todas las opciones ya guardadas por el usuario. Si en una nueva versión se introduce una nueva clave, se agrega con su valor por defecto sin alterar nada de lo que el cliente ya haya configurado.
+  - `_load_saved_config()`: Preserva todas las opciones ya guardadas por el usuario (ej: si desactivó OCR, se mantiene desactivado). Si en una nueva versión se introduce una nueva clave, se agrega con su valor por defecto sin alterar nada de lo que el cliente ya haya configurado.
   - `_load_replacement_rules()`: Conserva intactos todos los códigos y sus estados (`activo: True/False`). Solo agrega un nuevo código por defecto si su `codigo_origen` no existe en la lista del cliente.
 
 ### C. Conexión SSL y Actualizador (Windows 10 / 11)
 - `updater.py` utiliza `_get_ssl_context()` con `ctx.check_hostname = False` y `ctx.verify_mode = ssl.CERT_NONE`.
-- Esto previene el error crítico `[SSL: CERTIFICATE_VERIFY_FAILED]` en Windows 10 y en entornos empaquetados con PyInstaller.
-- El repositorio de releases es `betank434/bot-facturas`.
+- Esto previene el error crítico `[SSL: CERTIFICATE_VERIFY_FAILED]` en Windows 10 y en ejecutables compilados con PyInstaller.
+- El repositorio oficial de releases es `betank434/bot-facturas`.
 
 ### D. Reglas de Inno Setup (`instalador.iss`)
 - **Version Number**: `#define MyAppVersion "X.XX"` debe coincidir exactamente con `CURRENT_VERSION` en `updater.py`.
 - **Exclusiones**: `[Files]` debe excluir `config_facturador.json` y `codigos_reemplazo.json` del empaquetado masivo recursivo, e instalarlos por separado con `Flags: onlyifdoesntexist; Permissions: users-full`.
 - **Permisos**:
   - `[Dirs]` debe incluir `Name: "{app}"; Permissions: users-full`.
-  - `[Run]` debe ejecutar `icacls.exe "{app}" /grant *S-1-5-32-545:(OI)(CI)F /T /C /Q` en modo oculto (`runhidden`) para garantizar permisos totales a todos los usuarios de Windows sin importar el idioma del sistema.
+  - `[Run]` ejecuta `icacls.exe "{app}" /grant *S-1-5-32-545:(OI)(CI)F /T /C /Q` en modo oculto (`runhidden`) para garantizar permisos de control total a todos los usuarios de Windows sin importar el idioma del sistema.
 - **Acceso Directo**: Solo se crean accesos directos para la aplicación y la carpeta de PDFs. **NO crear acceso directo para `facturas_json` en el escritorio**. En `[InstallDelete]` se elimina cualquier acceso anterior a esa carpeta.
 
 ---
@@ -65,21 +71,13 @@ Cualquier agente que trabaje en este repositorio en cualquier PC debe seguir est
 1. **Incrementar la versión (Regla de oro: SIEMPRE versión nueva mayor, nunca repetir)**:
    - En `updater.py`: `CURRENT_VERSION = "X.XX"`
    - En `instalador.iss`: `#define MyAppVersion "X.XX"`
-2. **Compilar ejecutable con PyInstaller**:
-   ```powershell
-   python build_exe.py
-   ```
-3. **Compilar instalador oficial con Inno Setup**:
-   ```powershell
-   & "C:\Users\ofici\AppData\Local\Programs\Inno Setup 6\ISCC.exe" instalador.iss
-   ```
-   (El instalador resultante queda en: `dist_installer\Instalador_Facturador_Saint_vX.XX.exe`).
-4. **Hacer commit y push a GitHub**:
-   ```powershell
-   git commit -am "vX.XX: descripción del cambio"
-   git push origin main
-   ```
-5. **Crear el Release en GitHub**:
+2. **Compilar todo con 1 solo comando**:
+   Ejecutar `compilar_todo.bat` (genera icono, compila con PyInstaller y empaqueta con Inno Setup).
+   *(El instalador resultante queda en: `dist_installer\Instalador_Facturador_Saint_vX.XX.exe`)*.
+3. **Guardar cambios en Git**:
+   - En Antigravity se hace el commit del código.
+   - En GitHub Desktop se presiona **Push origin**.
+4. **Crear el Release en GitHub**:
    - URL: `https://github.com/betank434/bot-facturas/releases/new`
    - **Tag**: `vX.XX`
    - **Título**: `Facturador Saint vX.XX`
