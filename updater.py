@@ -57,8 +57,16 @@ def parse_version(v_str: str) -> tuple:
 
 
 def is_version_newer(latest_ver: str, current_ver: str = CURRENT_VERSION) -> bool:
-    """Devuelve True si latest_ver es estrictamente superior a current_ver."""
-    return parse_version(latest_ver) > parse_version(current_ver)
+    """Devuelve True si latest_ver es estrictamente superior a current_ver o es la versión final de una beta instalada."""
+    p_latest = parse_version(latest_ver)
+    p_current = parse_version(current_ver)
+    if p_latest > p_current:
+        return True
+    if p_latest == p_current:
+        # Si la instalada es beta y la nueva es versión final del mismo número (ej: 2.61.1 final sobre 2.61.1-beta)
+        if "beta" in str(current_ver).lower() and "beta" not in str(latest_ver).lower():
+            return True
+    return False
 
 
 def is_beta_release(release_data: dict) -> bool:

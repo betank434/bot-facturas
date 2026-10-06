@@ -20,3 +20,5 @@ Ver detalles completos y arquitectura en [AGENTS.md](AGENTS.md).
    - Delimitadores estrictos: Cantidad (0.58 a 0.78) y Precio (0.79 a 0.915). Excluir candidatos numéricos iguales a `cantidad`. En USD omitir renglones inferiores en Bolívares (Bs) y tokens > 500. Expandir grilla inferior (`h - 32px`) para abarcar siempre el último producto.
 8. **Actualizaciones Finales vs Betas**:
    - `_auto_check_updates()` al inicio NUNCA notifica betas (solo versiones finales). Las versiones Beta solo se buscan y descargan cuando el usuario pulsa deliberadamente el botón `🧪 Descargar Beta` en la cabecera.
+9. **Compilación y Nomenclatura de Betas**:
+   - Para versiones Beta usar `compilar_beta.bat` con nomenclatura `vX.XX.1-beta`, `vX.XX.2-beta`, etc. (ej: sobre 2.61, las betas son `v2.61.1-beta`). La versión final siguiente será `v2.62` (compilada con `compilar_todo.bat`).

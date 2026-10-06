@@ -2560,8 +2560,12 @@ class FacturadorApp:
                              font=("Segoe UI", 10, "bold"), fg="#f8fafc", bg="#0f172a")
         lbl_title.pack(side="left", padx=4, pady=6)
         
-        lbl_pro_badge = tk.Label(head_bar, text=f"PRO v{updater.CURRENT_VERSION}", font=("Segoe UI", 8, "bold"),
-                                 fg="#10b981", bg="#064e3b", padx=6, pady=1)
+        is_beta_ver = "beta" in str(updater.CURRENT_VERSION).lower()
+        badge_text = f"🧪 BETA v{updater.CURRENT_VERSION}" if is_beta_ver else f"PRO v{updater.CURRENT_VERSION}"
+        badge_fg = "#fbbf24" if is_beta_ver else "#10b981"
+        badge_bg = "#291e0a" if is_beta_ver else "#064e3b"
+        lbl_pro_badge = tk.Label(head_bar, text=badge_text, font=("Segoe UI", 8, "bold"),
+                                 fg=badge_fg, bg=badge_bg, padx=6, pady=1)
         lbl_pro_badge.pack(side="left", padx=8, pady=6)
 
         self.btn_update = tk.Button(

@@ -52,6 +52,10 @@ if not defined PYTHON_CMD (
     exit /b 1
 )
 
+for /f "delims=" %%C in ('%PYTHON_CMD% preparar_version.py --current 2^>nul') do set "COMPILING_VER=%%C"
+if defined COMPILING_VER echo Version a compilar: %COMPILING_VER%
+echo.
+
 :: 2. Auto-verificar si PyInstaller está instalado, y si falta instalarlo de inmediato
 %PYTHON_CMD% -c "import PyInstaller" >nul 2>&1
 if !ERRORLEVEL! NEQ 0 (

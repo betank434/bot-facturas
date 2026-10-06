@@ -455,19 +455,27 @@ def test_updater_beta_detection():
     assert updater.is_beta_release({"prerelease": True}), "Debe detectar flag prerelease=True"
     assert not updater.is_beta_release({"tag_name": "v2.61", "name": "Facturador Saint v2.61", "prerelease": False}), "No debe marcar versión final como beta"
 
-    # 2. Comparación de versiones beta
-    assert updater.is_beta_newer("v2.62-beta", "2.61"), "2.62-beta debe ser superior a 2.61"
-    assert updater.is_beta_newer("v2.61-beta", "2.61"), "v2.61-beta debe ser ofrecida a versión estable 2.61 para pruebas"
-    assert not updater.is_beta_newer("v2.61-beta", "2.61-beta"), "Misma versión beta no debe ofrecerse de nuevo"
-    assert updater.is_beta_newer("v2.61-beta2", "2.61-beta"), "Sub-beta 2 debe ser superior a sub-beta 0/1"
+    # 2. Comparación de versiones beta (nomenclatura v2.61.1-beta sobre v2.61)
+    assert updater.is_beta_newer("v2.61.1-beta", "2.61"), "2.61.1-beta debe ser superior a 2.61 estable"
+    assert updater.is_beta_newer("v2.61.2-beta", "v2.61.1-beta"), "2.61.2-beta debe ser superior a 2.61.1-beta"
+    assert not updater.is_beta_newer("v2.61.1-beta", "v2.61.1-beta"), "Misma versión beta no debe ofrecerse"
+    assert updater.is_version_newer("v2.62", "v2.61.1-beta"), "2.62 final debe ser superior a 2.61.1-beta"
+    assert updater.is_version_newer("v2.62", "v2.61.2-beta"), "2.62 final debe ser superior a 2.61.2-beta"
     assert not updater.is_beta_newer("v2.59-beta", "2.61"), "Beta antigua no debe ofrecerse"
 
-    # 3. Verificación de exclusión de betas en updater estándar
-    beta_rel = {"tag_name": "v2.62-beta", "name": "Facturador Saint v2.62 Beta", "prerelease": True}
+    # 3. Verificación de cálculo automático en preparar_version
+    import preparar_version
+    assert preparar_version.calculate_next_beta("2.61") == "2.61.1-beta"
+    assert preparar_version.calculate_next_beta("2.61.1-beta") == "2.61.2-beta"
+    assert preparar_version.calculate_next_final("2.61.2-beta") == "2.62"
+
+    # 4. Verificación de exclusión de betas en updater estándar
+    beta_rel = {"tag_name": "v2.61.1-beta", "name": "Facturador Saint v2.61.1 Beta", "prerelease": True}
     assert updater.is_beta_release(beta_rel), "Release beta identificado correctamente"
     
     print(" [OK] Función is_beta_release validada (tags, nombres y prerelease).")
-    print(" [OK] Función is_beta_newer validada ante múltiples escenarios y sub-versiones.")
+    print(" [OK] Función is_beta_newer validada ante nomenclatura v2.61.X-beta.")
+    print(" [OK] Módulo preparar_version validado: 2.61 -> 2.61.1-beta -> 2.61.2-beta -> 2.62.")
     print(f" [OK] Versión actual del sistema verificada: v{updater.CURRENT_VERSION} (Final).")
     print("-> Pruebas de Sistema de Actualizaciones Beta completadas al 100%.\n")
 

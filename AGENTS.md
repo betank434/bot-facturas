@@ -87,11 +87,12 @@ Cualquier agente que trabaje en este repositorio en cualquier PC debe seguir est
 
 ---
 
-## 4. Procedimiento para Lanzar una Nueva Versión (Release)
+## 4. Procedimiento para Lanzar una Nueva Versión Final (Release Oficial)
 
 1. **Incrementar la versión (Regla de oro: SIEMPRE versión nueva mayor, nunca repetir)**:
-   - En `updater.py`: `CURRENT_VERSION = "X.XX"`
-   - En `instalador.iss`: `#define MyAppVersion "X.XX"`
+   - Ejemplo: de `2.61` a `2.62`.
+   - Se puede usar: `python preparar_version.py --set-final`
+   - O manualmente en `updater.py` (`CURRENT_VERSION = "2.62"`) y `instalador.iss` (`#define MyAppVersion "2.62"`).
 2. **Compilar todo con 1 solo comando**:
    Ejecutar `compilar_todo.bat` (genera icono, compila con PyInstaller y empaqueta con Inno Setup).
    *(El instalador resultante queda en: `dist_installer\Instalador_Facturador_Saint_vX.XX.exe`)*.
@@ -100,9 +101,35 @@ Cualquier agente que trabaje en este repositorio en cualquier PC debe seguir est
    - En GitHub Desktop se presiona **Push origin**.
 4. **Crear el Release en GitHub**:
    - URL: `https://github.com/betank434/bot-facturas/releases/new`
-   - **Tag**: `vX.XX`
+   - **Tag**: `vX.XX` (ej: `v2.62`)
    - **Título**: `Facturador Saint vX.XX`
    - **Adjunto**: Subir `dist_installer\Instalador_Facturador_Saint_vX.XX.exe`.
-   - Publicar el release.
+   - Publicar el release (NO marcar pre-release).
 
-Al abrir cualquier cliente con una versión anterior, la aplicación detectará automáticamente la nueva versión en segundo plano y ofrecerá la actualización en 1 clic sin tocar sus configuraciones ni datos.
+Al abrir cualquier cliente con una versión anterior (incluso usuarios que estén en versiones Beta), la aplicación detectará automáticamente la nueva versión final en segundo plano y ofrecerá la actualización en 1 clic.
+
+---
+
+## 5. Procedimiento para Compilar y Publicar Versiones Beta
+
+Las versiones Beta trabajan directamente sobre la versión actual utilizando la nomenclatura `vX.XX.1-beta`, `vX.XX.2-beta`, etc. (ej: sobre la `2.61`, las betas son `v2.61.1-beta`, `v2.61.2-beta`), y cuando se terminen las pruebas, la versión definitiva será `v2.62`.
+
+1. **Compilar la Beta con 1 solo clic**:
+   - Ejecutar doble clic en `compilar_beta.bat`.
+   - Detecta automáticamente la versión actual y sugiere la siguiente beta (ej: `2.61.1-beta`).
+   - Presionar **ENTER** para aceptar la sugerencia (o escribir una versión personalizada).
+   - Genera el icono, compila con PyInstaller y empaqueta con Inno Setup de forma 100% automática.
+   - *(El instalador resultante queda en: `dist_installer\Instalador_Facturador_Saint_vX.XX.X-beta.exe`)*.
+2. **Guardar cambios en Git**:
+   - En GitHub Desktop, presionar **Push origin**.
+3. **Crear el Release Beta en GitHub**:
+   - URL: `https://github.com/betank434/bot-facturas/releases/new`
+   - **Tag**: `vX.XX.X-beta` (ej: `v2.61.1-beta`)
+   - **Título**: `Facturador Saint vX.XX.X Beta`
+   - **Casilla obligatoria**: Marcar `[X] Set as a pre-release`.
+   - **Adjunto**: Subir `dist_installer\Instalador_Facturador_Saint_vX.XX.X-beta.exe`.
+   - Publicar release.
+
+**Comportamiento en clientes**:
+- Al iniciar la app: **NO molestará a ningún cliente** (cero ventanas emergentes de beta al inicio).
+- Al pulsar `🧪 Descargar Beta` en la cabecera: Detectará `vX.XX.X-beta` y permitirá descargarla e instalarla en 1 solo clic.
