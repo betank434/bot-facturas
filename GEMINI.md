@@ -17,4 +17,4 @@ Ver detalles completos y arquitectura en [AGENTS.md](AGENTS.md).
 6. **Ciclo de Vida de Ventana de Auditoría**:
    - Al cerrar la auditoría (por "X" o "Cerrar Auditoría"), **NUNCA cerrar la app ni transferir foco a Saint de forma automática** (lo que ocultaría la app detrás de Saint). Mantener Facturador Saint restaurado, visible y enfocado con `forzar_ventana_al_frente(self.root)`.
 7. **Motor de Auditoría OCR**:
-   - Delimitadores estrictos: Cantidad (0.55 a 0.73) y Precio (0.74 a 0.88). Excluir candidatos numéricos iguales a `cantidad`. En USD omitir renglones inferiores en Bolívares (Bs) y tokens > 500. Expandir grilla inferior (`h - 32px`) para abarcar siempre el último producto.
+   - Delimitadores estrictos: Cantidad (0.58 a 0.78) y Precio (0.79 a 0.915). Excluir candidatos numéricos iguales a `cantidad`. En USD omitir renglones inferiores en Bolívares (Bs) y tokens > 500. Expandir grilla inferior (`h - 32px`) para abarcar siempre el último producto.

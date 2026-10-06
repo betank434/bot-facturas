@@ -527,8 +527,8 @@ def find_saint_grid_region(img: Image.Image) -> dict:
             "row_height": 49.0,
             "grid_w": int(w * 0.90),
             "grid_h": grid_bottom - grid_top,
-            "precio_x1": int(w * 0.74),
-            "precio_x2": int(w * 0.88),
+            "precio_x1": int(w * 0.79),
+            "precio_x2": int(w * 0.915),
             "grid_x1": int(w * 0.05),
             "grid_x2": int(w * 0.95)
         }
@@ -550,8 +550,8 @@ def find_saint_grid_region(img: Image.Image) -> dict:
     grid_bottom = max(grid_top + int(14 * row_height), int(h * 0.88))
     grid_bottom = min(grid_bottom, int(h - 32))
     grid_h = grid_bottom - grid_top
-    precio_x1 = grid_x1 + int(grid_w * 0.74)
-    precio_x2 = grid_x1 + int(grid_w * 0.88)
+    precio_x1 = grid_x1 + int(grid_w * 0.79)
+    precio_x2 = grid_x1 + int(grid_w * 0.915)
 
     return {
         "grid_top": grid_top,
@@ -695,10 +695,10 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
         ref_x_max = int(img_w * 0.35)
         desc_x_min = int(img_w * 0.10)
         desc_x_max = int(img_w * 0.65)
-        qty_x_min = int(img_w * 0.55)
-        qty_x_max = int(img_w * 0.73)
-        price_col_x1 = max(0, int(img_w * 0.74))
-        price_col_x2 = min(img_w, int(img_w * 0.88))
+        qty_x_min = int(img_w * 0.58)
+        qty_x_max = int(img_w * 0.78)
+        price_col_x1 = max(0, int(img_w * 0.79))
+        price_col_x2 = min(img_w, int(img_w * 0.915))
 
         header_keywords = {"REFERENCIA", "CODIGO", "DESCRIPCION", "CANTIDAD", "PRECIO", "TOTAL", "RENGLON", "ITEM", "UNIDAD", "SUBTOTAL"}
         footer_keywords = {
@@ -812,7 +812,7 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
             # Fallback desde tokens de la fila
             if not candidate_prices:
                 for w in row_words:
-                    if w["x"] >= int(img_w * 0.74):
+                    if price_col_x1 <= w["x"] < price_col_x2:
                         txt = w["text"].strip()
                         if currency == "usd" and re.search(r"\b(?:bs|bs\.|b)\b", txt, re.IGNORECASE):
                             continue
@@ -888,7 +888,8 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
                     "desc": desc_text,
                     "qty": found_qty,
                     "price": found_price,
-                    "candidates": candidate_prices
+                    "candidates": candidate_prices,
+                    "row_words": row_words
                 })
 
         # Comparación de precios para los ítems del lote
@@ -952,11 +953,20 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
                         # Si saint_price tomó por error la cantidad del ítem, descartar y buscar el precio real
                         it_qty = float(item.get("cantidad", 1))
                         if abs(saint_price - it_qty) < 0.001 and abs(saint_price - expected_price) > tolerance:
+                            found_alt = False
                             if matched_dr and "candidates" in matched_dr:
                                 for c in matched_dr.get("candidates", []):
                                     if not c.get("is_lower_half", False) or currency != "usd":
                                         if abs(c["val"] - it_qty) > 0.001 and c["val"] < 500.0:
                                             saint_price = c["val"]
+                                            found_alt = True
+                                            break
+                            if not found_alt and matched_dr and "row_words" in matched_dr:
+                                for rw in matched_dr.get("row_words", []):
+                                    if price_col_x1 <= rw["x"] < price_col_x2:
+                                        p_val = parse_price(rw["text"], currency=currency)
+                                        if p_val > 0.0 and abs(p_val - it_qty) > 0.001 and p_val < 500.0:
+                                            saint_price = p_val
                                             break
 
                         # Heurística de resiliencia ante pérdida de punto decimal por OCR
@@ -975,6 +985,18 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
                                        abs(cv / 10.0 - expected_price) <= tolerance:
                                         saint_price = expected_price
                                         break
+
+                        # Si persiste diferencia, buscar en tokens de la fila de la columna de precio
+                        if abs(saint_price - expected_price) > tolerance and matched_dr and "row_words" in matched_dr:
+                            for rw in matched_dr.get("row_words", []):
+                                if price_col_x1 <= rw["x"] < price_col_x2:
+                                    p_val = parse_price(rw["text"], currency=currency)
+                                    if p_val > 0.0:
+                                        if abs(p_val - expected_price) <= tolerance or \
+                                           abs(p_val / 100.0 - expected_price) <= tolerance or \
+                                           abs(p_val / 10.0 - expected_price) <= tolerance:
+                                            saint_price = expected_price
+                                            break
 
                         diff = abs(saint_price - expected_price)
                         if diff > tolerance:

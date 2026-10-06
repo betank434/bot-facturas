@@ -74,10 +74,10 @@ Cualquier agente que trabaje en este repositorio en cualquier PC debe seguir est
 
 ### F. Motor de Auditoría OCR en Cuadrícula Saint Enterprise
 - **Delimitación Estricta de Columnas**:
-  - Columna **CANTIDAD**: abarca de `0.55` a `0.73` del ancho de pantalla.
-  - Columna **PRECIO**: abarca de `0.74` a `0.88` del ancho.
-  - Prohibido solapar estas columnas para evitar que cantidades (ej. 9, 17, 29, 32) sean leídas como precio unitario.
-- **Filtro de Descarte por Cantidad**: Cualquier candidato numérico dentro de la celda de precio que coincida con `found_qty` de la fila es descartado. Si en la validación el precio tomado coincide con la cantidad del producto y difiere del precio esperado, se busca entre los candidatos secundarios.
+  - Columna **CANTIDAD**: abarca de `0.58` a `0.78` del ancho de pantalla/cuadrícula (abarca cantidades alineadas a la derecha).
+  - Columna **PRECIO**: abarca de `0.79` a `0.915` del ancho.
+  - Prohibido solapar estas columnas para evitar que cantidades (ej. 9, 17, 29, 32) sean leídas dentro de la celda de precio unitario.
+- **Filtro de Descarte por Cantidad**: Cualquier candidato numérico dentro de la celda de precio que coincida con `found_qty` de la fila o con la cantidad esperada del producto es descartado. Si en la validación el precio tomado coincide con la cantidad y difiere del esperado, se busca automáticamente entre los candidatos secundarios y en los tokens `row_words` de la columna de precio.
 - **Precios USD vs Bolívares (Bs)**: En Saint Enterprise, el precio en USD se muestra arriba en negrita y el precio en Bs abajo. En modo USD se omiten candidatos en la mitad inferior de la celda (`yc >= cell_h * 0.46`), candidatos con texto "Bs" y valores superiores a 500.
 - **Captura de Última Fila**: `grid_bottom` se expande hasta `h - 32px` (hasta 91% del alto de la ventana) para asegurar que el último renglón visible nunca quede cortado ni se catalogue falsamente como faltante.
 - **Prevención de Falsos Positivos**: Filas con totales ("TOTAL", "SUBTOTAL", "IVA", "BASE") y claves sintéticas `_row_` se excluyen de la lista de productos ajenos.
