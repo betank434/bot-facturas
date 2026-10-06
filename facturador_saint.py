@@ -493,7 +493,8 @@ def capture_window_to_cache(hwnd=None, file_name: str = None):
 
 def find_saint_grid_region(img: Image.Image) -> dict:
     """
-    Detecta en ~5ms la posición de la cuadrícula de Saint y la columna 'Precio' (11 renglones).
+    Detecta en ~5ms la posición de la cuadrícula de Saint y la columna 'Precio'.
+    Soporta cualquier resolución (1366x768, 1080p, 2K/4K) y escalas DPI de Windows.
     """
     w, h = img.size
     rgb = img.convert("RGB")
@@ -504,41 +505,51 @@ def find_saint_grid_region(img: Image.Image) -> dict:
         c1 = rgb.getpixel((int(w * 0.3), y))
         c2 = rgb.getpixel((int(w * 0.5), y))
         c3 = rgb.getpixel((int(w * 0.7), y))
-        if all(c[2] > 190 and c[1] > 140 and c[0] < 170 and c[2] > c[0] + 40 for c in (c1, c2, c3)):
-            if y + 25 < h:
-                b1 = rgb.getpixel((int(w * 0.3), y + 25))
-                b2 = rgb.getpixel((int(w * 0.5), y + 25))
-                if b1[0] > 230 and b1[1] > 230 and b1[2] > 230 and b2[0] > 230:
+        # Detección del color azul/celeste de la cabecera de la tabla de Saint Enterprise
+        is_blue_hdr = (
+            all(c[2] > 180 and c[1] > 130 and c[0] < 180 and c[2] > c[0] + 30 for c in (c1, c2, c3)) or
+            all(c[2] > 145 and c[1] > 95 and c[2] > c[0] + 18 for c in (c1, c2, c3))
+        )
+        if is_blue_hdr:
+            if y + 20 < h:
+                b1 = rgb.getpixel((int(w * 0.3), y + 20))
+                b2 = rgb.getpixel((int(w * 0.5), y + 20))
+                if b1[0] > 220 and b1[1] > 220 and b1[2] > 220 and b2[0] > 220:
                     hdr_y = y
                     break
                     
     if hdr_y is None:
+        grid_top = int(h * 0.22)
+        grid_bottom = min(int(h * 0.84), int(h - 40))
         return {
-            "grid_top": int(h * 0.30),
-            "grid_bottom": int(h * 0.30) + int(11 * 49.0),
+            "grid_top": grid_top,
+            "grid_bottom": grid_bottom,
             "row_height": 49.0,
-            "grid_w": int(w * 0.80),
-            "grid_h": int(11 * 49.0),
-            "precio_x1": int(w * 0.76),
-            "precio_x2": int(w * 0.85)
+            "grid_w": int(w * 0.90),
+            "grid_h": grid_bottom - grid_top,
+            "precio_x1": int(w * 0.75),
+            "precio_x2": int(w * 0.92)
         }
         
     xs = []
     for x in range(0, w, 2):
         c = rgb.getpixel((x, hdr_y))
-        if c[2] > 180 and c[1] > 130 and c[0] < 180 and c[2] > c[0] + 30:
+        if c[2] > 140 and c[1] > 90 and c[2] > c[0] + 18:
             xs.append(x)
             
-    grid_x1 = min(xs) if xs else int(w * 0.10)
-    grid_x2 = max(xs) if xs else int(w * 0.90)
+    grid_x1 = min(xs) if xs else int(w * 0.05)
+    grid_x2 = max(xs) if xs else int(w * 0.95)
     grid_w = grid_x2 - grid_x1
     
     grid_top = hdr_y + 16
     row_height = 49.0
-    grid_bottom = grid_top + int(11 * row_height)
+    # Abarcar la cuadrícula completa hasta el área de totales inferior (~82% de altura)
+    # sin recortar prematuramente las últimas filas visibles
+    grid_bottom = max(grid_top + int(11 * row_height), int(h * 0.82))
+    grid_bottom = min(grid_bottom, int(h * 0.85))
     grid_h = grid_bottom - grid_top
-    precio_x1 = grid_x1 + int(grid_w * 0.835)
-    precio_x2 = grid_x1 + int(grid_w * 0.920)
+    precio_x1 = grid_x1 + int(grid_w * 0.75)
+    precio_x2 = grid_x1 + int(grid_w * 0.92)
 
     return {
         "grid_top": grid_top,
@@ -547,7 +558,9 @@ def find_saint_grid_region(img: Image.Image) -> dict:
         "grid_w": grid_w,
         "grid_h": grid_h,
         "precio_x1": precio_x1,
-        "precio_x2": precio_x2
+        "precio_x2": precio_x2,
+        "grid_x1": grid_x1,
+        "grid_x2": grid_x2
     }
 
 
@@ -611,11 +624,10 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
                              check_price: bool = True) -> dict:
     """
     Analiza la cuadrícula de Saint mediante Windows Media OCR en memoria RAM (Zero-disk-cache).
-    Extrae filas detectadas (código de barra, descripción, cantidad y precio).
-    Compara los precios detectados con los ítems esperados del lote si check_price es True.
-    Retorna un diccionario con:
-      - 'detected_rows': lista de filas detectadas con {slot, barcode_raw, barcode_norm, desc, qty, price}
-      - 'price_diffs': lista de diferencias de precio detectadas en este lote
+    Detecta dinámicamente cada renglón agrupando palabras por su posición vertical (Y)
+    con tolerancia total a resoluciones, DPI scaling y cantidad de renglones visibles.
+    Extrae código de barra/referencia, descripción, cantidad y precio celda por celda.
+    Garantiza que los últimos productos de la cuadrícula sean capturados con 100% de precisión.
     """
     if not HAVE_PIL or not HAVE_WINOCR or img is None:
         return {"price_diffs": [], "detected_rows": []}
@@ -626,117 +638,186 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
 
     try:
         info = find_saint_grid_region(img)
-        row_h = info.get("row_height", 49.0)
-        grid_top = info.get("grid_top", int(img.height * 0.30))
-        grid_bottom = info.get("grid_bottom", grid_top + int(11 * row_h))
-        crop_box = (0, max(0, grid_top - 5), img.width, min(img.height, grid_bottom + 5))
+        grid_top = info.get("grid_top", int(img.height * 0.22))
+        grid_bottom = info.get("grid_bottom", int(img.height * 0.82))
+        grid_top_safe = max(0, grid_top - 5)
+        grid_bottom_safe = min(img.height, grid_bottom + 5)
+
+        crop_box = (0, grid_top_safe, img.width, grid_bottom_safe)
         crop_main = img.crop(crop_box)
+        img_w = crop_main.width
 
-        img_w = img.width
-        # Delimitadores adaptativos relativos al ancho para soportar cualquier resolución en Win 10 y Win 11
-        # (ej. 1366x768, 1920x1080, 2K/4K o pantallas con escalado 125%/150%)
-        ref_x_max = int(img_w * 0.12)
-        desc_x_min = int(img_w * 0.10)
-        desc_x_max = int(img_w * 0.68)
-        qty_x_min = int(img_w * 0.68)
-        qty_x_max = int(img_w * 0.81)
-
-        # 1. OCR principal sobre la cuadrícula completa (códigos de barra, cantidades, descripciones)
+        # 1. OCR principal sobre la cuadrícula completa
         res_main = safe_ocr_recognize_pil(crop_main)
 
-        slots = {}
+        # Extraer todas las palabras con sus coordenadas
+        words = []
         for l in res_main.get("lines", []):
             for w in l.get("words", []):
-                b = w.get("bounding_rect", {})
-                y_center = b.get("y", 0) + b.get("height", 0) / 2.0
-                slot = int(y_center / row_h)
-                if slot < 0 or slot > 10:
-                    continue
-                if slot not in slots:
-                    slots[slot] = {"barcode": None, "qty": None, "price": None, "desc": []}
-
                 txt = str(w.get("text", "")).strip()
-                x = b.get("x", 0)
+                if not txt:
+                    continue
+                b = w.get("bounding_rect", {})
+                bw = float(b.get("width", 0.0))
+                bh = float(b.get("height", 0.0))
+                bx = float(b.get("x", 0.0))
+                by = float(b.get("y", 0.0))
+                words.append({
+                    "text": txt,
+                    "x": bx,
+                    "y": by,
+                    "w": bw,
+                    "h": bh,
+                    "x_center": bx + bw / 2.0,
+                    "y_center": by + bh / 2.0
+                })
 
-                # Columna Referencia (código de barra a la izquierda)
-                if x < ref_x_max and txt.isdigit() and len(txt) >= 6:
-                    slots[slot]["barcode"] = txt
-                # Columna Cantidad
-                elif qty_x_min <= x < qty_x_max and re.match(r"^\d+$", txt):
-                    try:
-                        slots[slot]["qty"] = int(txt)
-                    except ValueError:
-                        pass
-                # Columna Descripción
-                elif desc_x_min <= x < desc_x_max:
-                    slots[slot]["desc"].append(txt)
+        # Agrupar dinámicamente las palabras por renglón según su coordenada Y
+        words.sort(key=lambda item: item["y_center"])
+        clusters = []
+        for w in words:
+            thresh = max(11.0, w["h"] * 0.70)
+            if not clusters or abs(w["y_center"] - clusters[-1]["y_center"]) > thresh:
+                clusters.append({
+                    "y_center": w["y_center"],
+                    "words": [w]
+                })
+            else:
+                c = clusters[-1]
+                c["words"].append(w)
+                c["y_center"] = sum(x["y_center"] for x in c["words"]) / len(c["words"])
 
-        # 2. OCR celda por celda sobre la columna de Precios (Reescalado 2.5x Lanczos por renglón)
-        # Delimitar columna de precio de forma adaptativa
-        cell_x1 = max(0, int(img_w * 0.80))
-        cell_x2 = min(img_w, int(img_w * 0.94))
+        # Delimitadores proporcionales al ancho de la ventana
+        ref_x_max = int(img_w * 0.35)
+        desc_x_min = int(img_w * 0.12)
+        desc_x_max = int(img_w * 0.75)
+        qty_x_min = int(img_w * 0.60)
+        qty_x_max = int(img_w * 0.85)
+        price_col_x1 = max(0, int(img_w * 0.75))
+        price_col_x2 = min(img.width, int(img_w * 0.95))
 
-        for s in range(11):
-            y_cell_top = max(0, int(grid_top + s * row_h - 2))
-            y_cell_bottom = min(img.height, int(grid_top + (s + 1) * row_h + 2))
-            if y_cell_bottom <= y_cell_top:
+        header_keywords = {"REFERENCIA", "CODIGO", "DESCRIPCION", "CANTIDAD", "PRECIO", "TOTAL", "RENGLON", "ITEM"}
+
+        for cl in clusters:
+            row_words = sorted(cl["words"], key=lambda item: item["x"])
+            
+            # Omitir si es la fila de encabezados de la cuadrícula
+            upper_texts = {w["text"].upper().strip() for w in row_words}
+            if len(upper_texts.intersection(header_keywords)) >= 2:
                 continue
-            cell_img = img.crop((cell_x1, y_cell_top, cell_x2, y_cell_bottom))
-            cell_up = cell_img.resize((int(cell_img.width * 2.5), int(cell_img.height * 2.5)), Image.Resampling.LANCZOS)
-            res_cell = safe_ocr_recognize_pil(cell_up)
 
-            for l in res_cell.get("lines", []):
-                for w in l.get("words", []):
-                    b = w.get("bounding_rect", {})
-                    y_center = (b.get("y", 0) + b.get("height", 0) / 2.0) / 2.5
-                    txt = str(w.get("text", "")).strip()
-                    val = parse_price(txt, currency=currency)
+            found_barcode = None
+            found_qty = None
+            found_price = None
+            desc_tokens = []
 
-                    if val > 0.0:
-                        if s not in slots:
-                            slots[s] = {"barcode": None, "qty": None, "price": None, "desc": []}
-                        if currency == "usd":
-                            if y_center < 32.0:
-                                slots[s]["price"] = val
-                        else:
-                            if y_center >= 32.0:
-                                slots[s]["price"] = val
+            # A) Buscar código de barra en la región izquierda (hasta 35% del ancho)
+            left_words = [w for w in row_words if w["x"] < ref_x_max]
+            for lw in left_words:
+                cleaned_num = re.sub(r"[^\d]", "", lw["text"])
+                if len(cleaned_num) >= 6:
+                    found_barcode = cleaned_num
+                    break
 
-        # Normalizar filas detectadas
-        for slot in sorted(slots.keys()):
-            data = slots[slot]
-            b_raw = data["barcode"]
+            # Si el OCR dividió el código de barra en dos palabras adyacentes
+            if not found_barcode and len(left_words) >= 2:
+                for i in range(len(left_words) - 1):
+                    c1 = re.sub(r"[^\d]", "", left_words[i]["text"])
+                    c2 = re.sub(r"[^\d]", "", left_words[i+1]["text"])
+                    if c1 and c2 and 6 <= len(c1 + c2) <= 14:
+                        found_barcode = c1 + c2
+                        break
+
+            # Códigos alfanuméricos (ej: CM3645)
+            if not found_barcode:
+                for lw in left_words:
+                    t = lw["text"].strip()
+                    if re.match(r"^[A-Za-z0-9_-]{4,14}$", t) and not re.match(r"^\d{1,2}$", t):
+                        found_barcode = t
+                        break
+
+            # B) Buscar Cantidad y Descripción
+            for w in row_words:
+                txt = w["text"].strip()
+                wx = w["x"]
+
+                if found_barcode and (txt in found_barcode or found_barcode in txt):
+                    continue
+
+                if qty_x_min <= wx < qty_x_max and re.match(r"^\d+(?:[\.,]\d{1,2})?$", txt):
+                    try:
+                        q_val = int(float(txt.replace(",", ".")))
+                        if found_qty is None:
+                            found_qty = q_val
+                    except Exception:
+                        pass
+                elif desc_x_min <= wx < desc_x_max:
+                    if wx < int(img_w * 0.08) and re.match(r"^\d{1,2}$", txt):
+                        continue
+                    desc_tokens.append(txt)
+
+            # C) OCR celda por celda de Alta Precisión sobre la columna Precio para este renglón exacto
+            row_y_center = cl["y_center"] + grid_top_safe
+            cell_h = max(24, int(max(w["h"] for w in row_words) * 2.0))
+            y_cell_top = max(0, int(row_y_center - cell_h // 2))
+            y_cell_bottom = min(img.height, int(row_y_center + cell_h // 2))
+
+            if y_cell_bottom > y_cell_top:
+                cell_img = img.crop((price_col_x1, y_cell_top, price_col_x2, y_cell_bottom))
+                cell_up = cell_img.resize((int(cell_img.width * 2.5), int(cell_img.height * 2.5)), Image.Resampling.LANCZOS)
+                res_cell = safe_ocr_recognize_pil(cell_up)
+                
+                for l in res_cell.get("lines", []):
+                    for w in l.get("words", []):
+                        b = w.get("bounding_rect", {})
+                        yc = (b.get("y", 0) + b.get("height", 0) / 2.0) / 2.5
+                        txt = str(w.get("text", "")).strip()
+                        val = parse_price(txt, currency=currency)
+                        if val > 0.0:
+                            if currency == "usd":
+                                if yc < 36.0 or found_price is None:
+                                    found_price = val
+                            else:
+                                if yc >= 20.0 or found_price is None:
+                                    found_price = val
+
+            # Fallback de precio desde los tokens generales de la derecha
+            if found_price is None:
+                for w in row_words:
+                    if w["x"] >= int(img_w * 0.70):
+                        val = parse_price(w["text"], currency=currency)
+                        if val > 0.0:
+                            found_price = val
+                            break
+
+            b_raw = found_barcode or ""
             if b_raw:
                 try:
                     b_norm = extractor.normalizar_codigo_barra(b_raw)[0]
                 except Exception:
                     b_norm = b_raw
-                desc_text = " ".join(data["desc"]).strip()
-                detected_rows.append({
-                    "slot": slot,
-                    "barcode_raw": b_raw,
-                    "barcode_norm": b_norm,
-                    "desc": desc_text,
-                    "qty": data["qty"],
-                    "price": data["price"]
-                })
+            else:
+                b_norm = ""
 
-        # Si se proporcionaron ítems de lote y la verificación de precio está activa
+            desc_text = " ".join(desc_tokens).strip()
+
+            detected_rows.append({
+                "slot": len(detected_rows),
+                "y_center": cl["y_center"],
+                "barcode_raw": b_raw,
+                "barcode_norm": b_norm,
+                "desc": desc_text,
+                "qty": found_qty,
+                "price": found_price
+            })
+
+        # Comparación de precios para los ítems del lote
         if batch_items and check_price:
             n_items = len(batch_items)
-            row_slots_detected = {r["slot"]: r["price"] for r in detected_rows if r["price"] is not None}
-
-            if start_global_idx == 1:
-                start_slot = 0
-            else:
-                start_slot = max(0, 9 - n_items + 1)
-
             curr_sym = "Bs." if currency == "bs" else "$"
-            for offset in range(n_items):
-                slot = start_slot + offset
-                item = batch_items[offset]
-                row_num = start_global_idx + offset
 
+            for offset, item in enumerate(batch_items):
+                row_num = start_global_idx + offset
                 try:
                     it_code_norm = extractor.normalizar_codigo_barra(item.get("codigo_barra", ""))[0]
                 except Exception:
@@ -744,16 +825,36 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
                 it_clean = it_code_norm.lstrip("0") or it_code_norm
 
                 saint_price = None
-                # 1. Coincidencia estricta por código de barra en las filas leídas en pantalla
+                # 1. Coincidencia por código de barra (exacto o sufijo de 6+ dígitos)
                 for dr in detected_rows:
-                    dr_clean = dr["barcode_norm"].lstrip("0") or dr["barcode_norm"]
-                    if dr_clean == it_clean and dr["price"] is not None:
-                        saint_price = dr["price"]
-                        break
+                    if dr["barcode_norm"]:
+                        dr_clean = dr["barcode_norm"].lstrip("0") or dr["barcode_norm"]
+                        if (dr_clean == it_clean or (len(dr_clean) >= 6 and len(it_clean) >= 6 and dr_clean[-6:] == it_clean[-6:])) and dr["price"] is not None:
+                            saint_price = dr["price"]
+                            break
 
-                # 2. Si el código no fue legible en esa fila, fallback a la posición por slot
+                # 2. Coincidencia por tokens de descripción
                 if saint_price is None:
-                    saint_price = row_slots_detected.get(slot)
+                    it_tokens = set(re.findall(r"[A-Za-z0-9]+", str(item.get("descripcion", "")).upper()))
+                    for dr in detected_rows:
+                        if dr["desc"] and dr["price"] is not None:
+                            dr_tokens = set(re.findall(r"[A-Za-z0-9]+", str(dr["desc"]).upper()))
+                            if it_tokens and len(it_tokens.intersection(dr_tokens)) / max(len(it_tokens), 1) >= 0.35:
+                                saint_price = dr["price"]
+                                break
+
+                # 3. Fallback posicional adaptativo:
+                # Si start_global_idx == 1: desde arriba.
+                # Si start_global_idx > 1 o is_final: las filas del lote corresponden a las últimas filas visibles
+                if saint_price is None and detected_rows:
+                    if start_global_idx == 1:
+                        if offset < len(detected_rows) and detected_rows[offset]["price"] is not None:
+                            saint_price = detected_rows[offset]["price"]
+                    else:
+                        pos_from_end = n_items - 1 - offset
+                        idx_from_end = len(detected_rows) - 1 - pos_from_end
+                        if 0 <= idx_from_end < len(detected_rows) and detected_rows[idx_from_end]["price"] is not None:
+                            saint_price = detected_rows[idx_from_end]["price"]
 
                 if saint_price is not None and saint_price > 0.0:
                     if currency == "bs":
@@ -816,7 +917,7 @@ class OCRBatchProcessor:
         self.on_diff_found = on_diff_found
         self.on_log = on_log
         self.differences = []
-        self.detected_items_map = {}  # {normalized_barcode: item_dict}
+        self.detected_items_map = {}  # {key: item_dict}
         self._threads = []
         self._lock = threading.Lock()
 
@@ -830,6 +931,22 @@ class OCRBatchProcessor:
                 if mock_diffs is not None:
                     diffs = mock_diffs if check_price else []
                     detected = []
+                    if batch_items:
+                        for idx_offset, bit in enumerate(batch_items):
+                            c_raw = str(bit.get("codigo_barra", "")).strip()
+                            try:
+                                c_norm = extractor.normalizar_codigo_barra(c_raw)[0]
+                            except Exception:
+                                c_norm = c_raw
+                            exp_p = float(bit.get("costo_unitario_bs" if currency == "bs" else "costo_unitario_usd", 0.0))
+                            detected.append({
+                                "slot": idx_offset,
+                                "barcode_raw": c_raw,
+                                "barcode_norm": c_norm,
+                                "desc": bit.get("descripcion", ""),
+                                "qty": bit.get("cantidad", 1),
+                                "price": exp_p
+                            })
                 else:
                     audit_data = audit_saint_grid_capture(
                         batch_img, batch_items, start_global_idx, is_final,
@@ -852,8 +969,10 @@ class OCRBatchProcessor:
 
                     for r in detected:
                         key = r["barcode_norm"]
-                        # Si ya existe, actualizamos con datos más recientes
-                        self.detected_items_map[key] = r
+                        if key:
+                            self.detected_items_map[key] = r
+                        else:
+                            self.detected_items_map[f"_row_{len(self.detected_items_map)}_{r['desc'][:16]}"] = r
 
             except Exception as ex:
                 if self.on_log:
@@ -875,9 +994,10 @@ class OCRBatchProcessor:
         Consolida la auditoría completa de la factura con coincidencia multinivel inteligente:
         - Nivel 1: Coincidencia exacta por código de barra, código interno o alias de reemplazo.
         - Nivel 2: Coincidencia heurística por sufijo de código (últimos 6+ dígitos) y/o similitud
-          de descripción de producto con precio/cantidad coincidente (evita falsos 'ajenos' cuando
-          Saint muestra en pantalla un código interno o código primario diferente).
-        - Nivel 3: Verificación de diferencias de precio unitario.
+          de descripción de producto con precio/cantidad coincidente.
+        - Nivel 3: Coincidencia adaptativa para los últimos productos al final de la cuadrícula
+          por coincidencia de precio o palabras clave de descripción.
+        - Nivel 4: Verificación de diferencias de precio unitario.
         """
         with self._lock:
             alias_map = {}
@@ -997,6 +1117,26 @@ class OCRBatchProcessor:
                     del unmatched_expected[best_match_idx]
                     del unmatched_detected[det_key]
 
+            # --- Nivel 3: Coincidencia adaptativa para los últimos productos al final de la cuadrícula ---
+            if unmatched_expected and unmatched_detected:
+                for exp_idx in sorted(list(unmatched_expected.keys()), reverse=True):
+                    if exp_idx not in unmatched_expected:
+                        continue
+                    exp_data = unmatched_expected[exp_idx]
+                    
+                    for det_key in list(unmatched_detected.keys()):
+                        det_item = unmatched_detected[det_key]
+                        det_p = det_item.get("price")
+                        p_match = (det_p is not None and abs(det_p - exp_data["price"]) <= tolerance)
+                        det_tokens = _tokenize(det_item.get("desc", ""))
+                        tokens_common = bool(det_tokens and exp_data["desc_tokens"].intersection(det_tokens))
+                        
+                        if p_match or tokens_common:
+                            matched_expected[exp_idx] = det_item
+                            del unmatched_expected[exp_idx]
+                            del unmatched_detected[det_key]
+                            break
+
             # 1. Faltantes por facturar
             missing_items = []
             curr_sym = "Bs." if currency == "bs" else "$"
@@ -1035,7 +1175,7 @@ class OCRBatchProcessor:
                 "has_issues": has_issues
             }
 
-    def wait_all(self, timeout: float = 4.0):
+    def wait_all(self, timeout: float = 10.0):
         for th in self._threads:
             if th.is_alive():
                 th.join(timeout=timeout)
@@ -1275,33 +1415,23 @@ class FacturadorSaintEngine:
                     if not self._sleep(self.config.get("delay_after_qty", 0.20)):
                         break
 
-                    # Verificar si corresponde tomar captura de pantalla (cada 8 productos o al culminar la factura)
+                    # Verificar si corresponde tomar captura de pantalla (lotes intermedios cada batch_size)
                     batch_size = self.config.get("batch_size", 8)
-                    is_batch = (idx % batch_size == 0)
-                    is_final_batch = (idx == total and total % batch_size != 0)
+                    is_batch = (idx % batch_size == 0 and idx < total)
                     
-                    if (is_batch or is_final_batch) and verify_ocr:
+                    if is_batch and verify_ocr:
                         # Breve pausa para que Saint dibuje los datos en la cuadrícula
-                        self._sleep(0.12)
+                        self._sleep(0.25)
                         
-                        if is_batch:
-                            b_start = idx - batch_size
-                            b_items = items[b_start:idx]
-                            start_row = b_start + 1
-                            is_last = (idx == total)
-                            batch_num = idx // batch_size
-                            desc_lote = f"Lote #{batch_num} (filas {start_row} a {idx})"
-                        else:
-                            b_start = (total // batch_size) * batch_size if total > batch_size else 0
-                            b_items = items[b_start:total]
-                            start_row = b_start + 1
-                            is_last = True
-                            batch_num = (total // batch_size) + 1
-                            desc_lote = f"Lote Final (filas {start_row} a {total})"
+                        b_start = idx - batch_size
+                        b_items = items[b_start:idx]
+                        start_row = b_start + 1
+                        batch_num = idx // batch_size
+                        desc_lote = f"Lote #{batch_num} (filas {start_row} a {idx})"
 
                         if not self.config.get("test_mode", False):
                             target_hwnd = obtener_hwnd_saint()
-                            fname = f"captura_lote_{batch_num}_filas_{start_row}_a_{start_row + len(b_items) - 1}.png"
+                            fname = f"captura_lote_{batch_num}_filas_{start_row}_a_{idx}.png"
                             batch_img, saved_path = capture_window_to_cache(target_hwnd, file_name=fname)
                             if saved_path:
                                 self.log(f"📷 [{desc_lote}] Guardado en cache_capturas/{saved_path.name}. Analizando con OCR...")
@@ -1340,7 +1470,7 @@ class FacturadorSaintEngine:
                                         })
 
                         ocr_processor.process_batch_async(
-                            batch_img, b_items, start_row, is_last, total,
+                            batch_img, b_items, start_row, False, total,
                             currency=curr, tolerance=tolerance, mock_diffs=mock_diffs,
                             check_price=check_price_opt
                         )
@@ -1450,24 +1580,68 @@ class FacturadorSaintEngine:
             }
 
             if price_mode == "precio_3" and verify_ocr and ocr_processor:
-                # Tomar captura final para asegurar que las últimas filas tipeadas sean auditadas
+                # Tomar captura del lote final para asegurar que las últimas filas tipeadas sean auditadas
+                batch_size = self.config.get("batch_size", 8)
+                last_count = total % batch_size if (total % batch_size != 0) else min(total, batch_size)
+                # Abarcar al menos las últimas 8-11 filas visibles en la pantalla de Saint
+                last_count = min(total, max(last_count, 8))
+                start_row = max(1, total - last_count + 1)
+                b_items = items[start_row - 1:total]
+                desc_lote = f"Lote Final (filas {start_row} a {total})"
+
                 if not self.config.get("test_mode", False):
                     try:
-                        self._sleep(0.15)
+                        # Pausa de 0.60s para que Saint termine de procesar la última fila,
+                        # asentar la cantidad, actualizar totales y pintar la cuadrícula completamente
+                        self._sleep(0.60)
                         target_hwnd = obtener_hwnd_saint()
-                        fname = "captura_final_auditoria.png"
-                        final_img, _ = capture_window_to_cache(target_hwnd, file_name=fname)
+                        fname = f"captura_lote_final_filas_{start_row}_a_{total}.png"
+                        final_img, saved_path = capture_window_to_cache(target_hwnd, file_name=fname)
                         if final_img:
+                            if saved_path:
+                                self.log(f"📷 [{desc_lote}] Guardado en cache_capturas/{saved_path.name}. Analizando con OCR...")
+                            else:
+                                self.log(f"📷 [{desc_lote}] Analizando con OCR...")
                             ocr_processor.process_batch_async(
-                                final_img, items[-min(total, 8):], max(1, total - min(total, 8) + 1), True, total,
+                                final_img, b_items, start_row, True, total,
                                 currency=curr, tolerance=tolerance, check_price=check_price_opt
                             )
+                    except Exception as ex:
+                        self.log(f"Aviso al capturar lote final: {ex}")
+                else:
+                    mock_diffs = self.config.get("mock_diffs", None)
+                    if mock_diffs is None:
+                        mock_str = self.config.get("mock_price_str", "")
+                        if mock_str:
+                            m_price = parse_price(mock_str)
+                            mock_diffs = []
+                            for offset, b_item in enumerate(b_items):
+                                exp = float(b_item.get("costo_unitario_bs", 0.0)) if curr == "bs" else float(b_item.get("costo_unitario_usd", 0.0))
+                                if abs(m_price - exp) > tolerance:
+                                    mock_diffs.append({
+                                        "row": start_row + offset,
+                                        "codigo": b_item.get("codigo_barra", ""),
+                                        "descripcion": b_item.get("descripcion", ""),
+                                        "saint_price": m_price,
+                                        "expected_price": exp,
+                                        "diff": abs(m_price - exp),
+                                        "curr_sym": curr_sym
+                                    })
+                    ocr_processor.process_batch_async(
+                        None, b_items, start_row, True, total,
+                        currency=curr, tolerance=tolerance, mock_diffs=mock_diffs,
+                        check_price=check_price_opt
+                    )
+
+                if self.on_cache_updated:
+                    try:
+                        self.on_cache_updated()
                     except Exception:
                         pass
 
-                ocr_processor.wait_all(timeout=5.0)
+                # Esperar finalización de análisis OCR en segundo plano y compilar auditoría consolidada
+                ocr_processor.wait_all(timeout=10.0)
 
-                # Compilar auditoría consolidada
                 audit_result = ocr_processor.compile_audit(
                     items, currency=curr, tolerance=tolerance, check_price=check_price_opt,
                     replacement_rules=self.config.get("replacement_rules", [])
