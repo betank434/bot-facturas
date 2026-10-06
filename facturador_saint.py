@@ -4328,31 +4328,56 @@ class FacturadorApp:
                                 fg="#0284c7", bg="#e0f2fe", activebackground="#bae6fd", padx=12, pady=6, relief="flat", cursor="hand2", command=reaudit_action)
         btn_reaudit.pack(side="left")
 
-        def on_close_action():
+        def close_audit_only():
+            """Cierra la ventana de auditoría garantizando que Facturador Saint permanezca abierto y al frente."""
             try:
                 w.grab_release()
             except Exception:
                 pass
             w.destroy()
             try:
+                forzar_ventana_al_frente(self.root)
+            except Exception:
+                pass
+            try:
                 self._toggle_topmost()
             except Exception:
                 pass
             if on_close:
-                on_close()
-            else:
                 try:
-                    if not self.engine.config.get("test_mode", False):
-                        buscar_y_enfocar_saint()
+                    on_close()
                 except Exception:
                     pass
 
-        w.protocol("WM_DELETE_WINDOW", on_close_action)
+        def close_and_go_to_saint():
+            """Cierra la auditoría y enfoca Saint Enterprise si el usuario lo desea explícitamente."""
+            try:
+                w.grab_release()
+            except Exception:
+                pass
+            w.destroy()
+            try:
+                if not self.engine.config.get("test_mode", False):
+                    buscar_y_enfocar_saint()
+            except Exception:
+                pass
+            if on_close:
+                try:
+                    on_close()
+                except Exception:
+                    pass
 
-        btn_ok = tk.Button(btn_bar, text="✔️ Entendido (Ir a Saint)", font=("Segoe UI", 9, "bold"),
-                           fg="white", bg="#0284c7", activebackground="#0369a1", activeforeground="white",
-                           padx=18, pady=6, relief="flat", cursor="hand2", command=on_close_action)
-        btn_ok.pack(side="right")
+        w.protocol("WM_DELETE_WINDOW", close_audit_only)
+
+        btn_go_saint = tk.Button(btn_bar, text="🖥️ Ir a Saint", font=("Segoe UI", 9),
+                                 fg="#334155", bg="#f1f5f9", activebackground="#e2e8f0",
+                                 padx=12, pady=6, relief="flat", cursor="hand2", command=close_and_go_to_saint)
+        btn_go_saint.pack(side="right", padx=(8, 0))
+
+        btn_close = tk.Button(btn_bar, text="✔️ Cerrar Auditoría", font=("Segoe UI", 9, "bold"),
+                              fg="white", bg="#0284c7", activebackground="#0369a1", activeforeground="white",
+                              padx=18, pady=6, relief="flat", cursor="hand2", command=close_audit_only)
+        btn_close.pack(side="right")
 
     def _on_engine_log(self, msg):
         self.root.after(0, lambda: self._log(msg))

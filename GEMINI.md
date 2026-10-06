@@ -1,6 +1,6 @@
 # Facturador Saint Enterprise - Reglas y Guía de Desarrollo
 
-Ver detalles completos y arquitectura en [AGENTS.md](file:///c:/Users/ofici/Desktop/bot%20facturas%20sigo/bot%20facturas/AGENTS.md).
+Ver detalles completos y arquitectura en [AGENTS.md](AGENTS.md).
 
 ### Resumen Rápido para el Asistente / Agente:
 1. **Repositorio**: `https://github.com/betank434/bot-facturas.git` (Owner: `betank434`, Repo: `bot-facturas`).
@@ -14,3 +14,7 @@ Ver detalles completos y arquitectura en [AGENTS.md](file:///c:/Users/ofici/Desk
    - La fusión inteligente (Smart Merge) nunca sobrescribe ajustes ni estados (`activo`) de clientes en actualizaciones; solo añade opciones o códigos nuevos.
 5. **Git Push**:
    - Los commits se realizan localmente; la sincronización a GitHub se hace mediante 1 clic en GitHub Desktop (`Push origin`).
+6. **Ciclo de Vida de Ventana de Auditoría**:
+   - Al cerrar la auditoría (por "X" o "Cerrar Auditoría"), **NUNCA cerrar la app ni transferir foco a Saint de forma automática** (lo que ocultaría la app detrás de Saint). Mantener Facturador Saint restaurado, visible y enfocado con `forzar_ventana_al_frente(self.root)`.
+7. **Motor de Auditoría OCR**:
+   - Delimitadores estrictos: Cantidad (0.55 a 0.73) y Precio (0.74 a 0.88). Excluir candidatos numéricos iguales a `cantidad`. En USD omitir renglones inferiores en Bolívares (Bs) y tokens > 500. Expandir grilla inferior (`h - 32px`) para abarcar siempre el último producto.

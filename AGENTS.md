@@ -64,6 +64,24 @@ Cualquier agente que trabaje en este repositorio en cualquier PC debe seguir est
   - `[Run]` ejecuta `icacls.exe "{app}" /grant *S-1-5-32-545:(OI)(CI)F /T /C /Q` en modo oculto (`runhidden`) para garantizar permisos de control total a todos los usuarios de Windows sin importar el idioma del sistema.
 - **Acceso Directo**: Solo se crean accesos directos para la aplicación y la carpeta de PDFs. **NO crear acceso directo para `facturas_json` en el escritorio**. En `[InstallDelete]` se elimina cualquier acceso anterior a esa carpeta.
 
+### E. Interfaz de Usuario y Ciclo de Vida de Ventanas (Ventana de Auditoría OCR)
+- **Regla Crítica**: Al cerrar la ventana de Auditoría OCR (`w` Toplevel), **NUNCA cerrar la aplicación ni transferir el foco a Saint Enterprise de forma obligatoria**, lo que causaría que Facturador Saint se oculte o desaparezca detrás de Saint.
+- Tanto el cierre por la "X" (`WM_DELETE_WINDOW`) como el botón `✔️ Cerrar Auditoría` deben ejecutar `close_audit_only()`:
+  1. Destruir únicamente el diálogo de auditoría (`w.destroy()`).
+  2. Restaurar y traer al frente la ventana principal mediante `forzar_ventana_al_frente(self.root)`.
+  3. Mantener el programa Facturador Saint 100% visible, enfocado y operativo en primer plano.
+- La transferencia de foco hacia Saint solo se realiza si el usuario pulsa deliberadamente el botón `🖥️ Ir a Saint`.
+
+### F. Motor de Auditoría OCR en Cuadrícula Saint Enterprise
+- **Delimitación Estricta de Columnas**:
+  - Columna **CANTIDAD**: abarca de `0.55` a `0.73` del ancho de pantalla.
+  - Columna **PRECIO**: abarca de `0.74` a `0.88` del ancho.
+  - Prohibido solapar estas columnas para evitar que cantidades (ej. 9, 17, 29, 32) sean leídas como precio unitario.
+- **Filtro de Descarte por Cantidad**: Cualquier candidato numérico dentro de la celda de precio que coincida con `found_qty` de la fila es descartado. Si en la validación el precio tomado coincide con la cantidad del producto y difiere del precio esperado, se busca entre los candidatos secundarios.
+- **Precios USD vs Bolívares (Bs)**: En Saint Enterprise, el precio en USD se muestra arriba en negrita y el precio en Bs abajo. En modo USD se omiten candidatos en la mitad inferior de la celda (`yc >= cell_h * 0.46`), candidatos con texto "Bs" y valores superiores a 500.
+- **Captura de Última Fila**: `grid_bottom` se expande hasta `h - 32px` (hasta 91% del alto de la ventana) para asegurar que el último renglón visible nunca quede cortado ni se catalogue falsamente como faltante.
+- **Prevención de Falsos Positivos**: Filas con totales ("TOTAL", "SUBTOTAL", "IVA", "BASE") y claves sintéticas `_row_` se excluyen de la lista de productos ajenos.
+
 ---
 
 ## 4. Procedimiento para Lanzar una Nueva Versión (Release)
