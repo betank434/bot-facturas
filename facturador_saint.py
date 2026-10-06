@@ -527,8 +527,8 @@ def find_saint_grid_region(img: Image.Image) -> dict:
             "row_height": 49.0,
             "grid_w": int(w * 0.90),
             "grid_h": grid_bottom - grid_top,
-            "precio_x1": int(w * 0.70),
-            "precio_x2": int(w * 0.95),
+            "precio_x1": int(w * 0.74),
+            "precio_x2": int(w * 0.88),
             "grid_x1": int(w * 0.05),
             "grid_x2": int(w * 0.95)
         }
@@ -550,8 +550,8 @@ def find_saint_grid_region(img: Image.Image) -> dict:
     grid_bottom = max(grid_top + int(14 * row_height), int(h * 0.88))
     grid_bottom = min(grid_bottom, int(h - 32))
     grid_h = grid_bottom - grid_top
-    precio_x1 = grid_x1 + int(grid_w * 0.70)
-    precio_x2 = grid_x1 + int(grid_w * 0.95)
+    precio_x1 = grid_x1 + int(grid_w * 0.74)
+    precio_x2 = grid_x1 + int(grid_w * 0.88)
 
     return {
         "grid_top": grid_top,
@@ -694,11 +694,11 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
         # Delimitadores proporcionales al ancho de la ventana
         ref_x_max = int(img_w * 0.35)
         desc_x_min = int(img_w * 0.10)
-        desc_x_max = int(img_w * 0.75)
-        qty_x_min = int(img_w * 0.58)
-        qty_x_max = int(img_w * 0.85)
-        price_col_x1 = max(0, int(img_w * 0.68))
-        price_col_x2 = min(img_w, int(img_w * 0.98))
+        desc_x_max = int(img_w * 0.65)
+        qty_x_min = int(img_w * 0.55)
+        qty_x_max = int(img_w * 0.73)
+        price_col_x1 = max(0, int(img_w * 0.74))
+        price_col_x2 = min(img_w, int(img_w * 0.88))
 
         header_keywords = {"REFERENCIA", "CODIGO", "DESCRIPCION", "CANTIDAD", "PRECIO", "TOTAL", "RENGLON", "ITEM", "UNIDAD", "SUBTOTAL"}
         footer_keywords = {
@@ -791,6 +791,7 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
                 for l in res_cell.get("lines", []):
                     for w in l.get("words", []):
                         b = w.get("bounding_rect", {})
+                        xc = (b.get("x", 0) + b.get("width", 0) / 2.0) / 2.5
                         yc = (b.get("y", 0) + b.get("height", 0) / 2.0) / 2.5
                         txt = str(w.get("text", "")).strip()
                         
@@ -802,6 +803,7 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
                         if val > 0.0:
                             candidate_prices.append({
                                 "val": val,
+                                "xc": xc,
                                 "yc": yc,
                                 "text": txt,
                                 "is_lower_half": (yc >= (cell_h * 0.46))
@@ -810,15 +812,18 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
             # Fallback desde tokens de la fila
             if not candidate_prices:
                 for w in row_words:
-                    if w["x"] >= int(img_w * 0.68):
+                    if w["x"] >= int(img_w * 0.74):
                         txt = w["text"].strip()
                         if currency == "usd" and re.search(r"\b(?:bs|bs\.|b)\b", txt, re.IGNORECASE):
                             continue
                         val = parse_price(txt, currency=currency)
                         if val > 0.0:
+                            if found_qty is not None and abs(val - float(found_qty)) < 0.001:
+                                continue
                             is_lower = (w["y_center"] > cl["y_center"])
                             candidate_prices.append({
                                 "val": val,
+                                "xc": w["x"],
                                 "yc": w["y_center"] - (cl["y_center"] - cell_h / 2),
                                 "text": txt,
                                 "is_lower_half": is_lower
@@ -828,17 +833,28 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
                 # Arriba en NEGRITA = Precio en USD. Abajo = Precio en Bolívares (Bs).
                 # Omitir los precios de abajo porque son en Bs.
                 top_candidates = [c for c in candidate_prices if not c["is_lower_half"]]
+                
+                # Regla Crítica: Descartar cualquier candidato que coincida con la CANTIDAD de la fila
+                if found_qty is not None and found_qty > 0:
+                    filtered_cands = [c for c in top_candidates if abs(c["val"] - float(found_qty)) > 0.001]
+                    if filtered_cands:
+                        top_candidates = filtered_cands
+
                 valid_usd_candidates = [c for c in top_candidates if c["val"] < 500.0]
                 if not valid_usd_candidates:
                     valid_usd_candidates = top_candidates
                     
                 if valid_usd_candidates:
-                    valid_usd_candidates.sort(key=lambda c: c["yc"])
+                    # Priorizar candidatos situados más a la derecha en la celda y en la parte superior
+                    valid_usd_candidates.sort(key=lambda c: (-c.get("xc", 0.0), c["yc"]))
                     found_price = valid_usd_candidates[0]["val"]
                 elif candidate_prices:
-                    small_candidates = [c for c in candidate_prices if c["val"] < 150.0]
+                    small_candidates = [
+                        c for c in candidate_prices 
+                        if c["val"] < 150.0 and (found_qty is None or abs(c["val"] - float(found_qty)) > 0.001)
+                    ]
                     if small_candidates:
-                        small_candidates.sort(key=lambda c: c["yc"])
+                        small_candidates.sort(key=lambda c: (-c.get("xc", 0.0), c["yc"]))
                         found_price = small_candidates[0]["val"]
             else:
                 bottom_candidates = [c for c in candidate_prices if c["is_lower_half"]]
@@ -933,6 +949,16 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
                         expected_price = float(item.get("costo_unitario_usd", 0.0))
 
                     if expected_price > 0.0:
+                        # Si saint_price tomó por error la cantidad del ítem, descartar y buscar el precio real
+                        it_qty = float(item.get("cantidad", 1))
+                        if abs(saint_price - it_qty) < 0.001 and abs(saint_price - expected_price) > tolerance:
+                            if matched_dr and "candidates" in matched_dr:
+                                for c in matched_dr.get("candidates", []):
+                                    if not c.get("is_lower_half", False) or currency != "usd":
+                                        if abs(c["val"] - it_qty) > 0.001 and c["val"] < 500.0:
+                                            saint_price = c["val"]
+                                            break
+
                         # Heurística de resiliencia ante pérdida de punto decimal por OCR
                         if abs(saint_price / 100.0 - expected_price) <= tolerance:
                             saint_price = round(saint_price / 100.0, 2)
