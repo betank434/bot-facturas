@@ -519,16 +519,18 @@ def find_saint_grid_region(img: Image.Image) -> dict:
                     break
                     
     if hdr_y is None:
-        grid_top = int(h * 0.22)
-        grid_bottom = min(int(h * 0.84), int(h - 40))
+        grid_top = int(h * 0.20)
+        grid_bottom = min(int(h * 0.90), int(h - 32))
         return {
             "grid_top": grid_top,
             "grid_bottom": grid_bottom,
             "row_height": 49.0,
             "grid_w": int(w * 0.90),
             "grid_h": grid_bottom - grid_top,
-            "precio_x1": int(w * 0.75),
-            "precio_x2": int(w * 0.92)
+            "precio_x1": int(w * 0.70),
+            "precio_x2": int(w * 0.95),
+            "grid_x1": int(w * 0.05),
+            "grid_x2": int(w * 0.95)
         }
         
     xs = []
@@ -543,13 +545,13 @@ def find_saint_grid_region(img: Image.Image) -> dict:
     
     grid_top = hdr_y + 16
     row_height = 49.0
-    # Abarcar la cuadrícula completa hasta el área de totales inferior (~82% de altura)
-    # sin recortar prematuramente las últimas filas visibles
-    grid_bottom = max(grid_top + int(11 * row_height), int(h * 0.82))
-    grid_bottom = min(grid_bottom, int(h * 0.85))
+    # Abarcar la cuadrícula completa hasta justo antes de la barra de estado inferior
+    # asegurando que todas las filas visibles (incluida la última) queden dentro
+    grid_bottom = max(grid_top + int(14 * row_height), int(h * 0.88))
+    grid_bottom = min(grid_bottom, int(h - 32))
     grid_h = grid_bottom - grid_top
-    precio_x1 = grid_x1 + int(grid_w * 0.75)
-    precio_x2 = grid_x1 + int(grid_w * 0.92)
+    precio_x1 = grid_x1 + int(grid_w * 0.70)
+    precio_x2 = grid_x1 + int(grid_w * 0.95)
 
     return {
         "grid_top": grid_top,
@@ -638,12 +640,14 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
 
     try:
         info = find_saint_grid_region(img)
-        grid_top = info.get("grid_top", int(img.height * 0.22))
-        grid_bottom = info.get("grid_bottom", int(img.height * 0.82))
-        grid_top_safe = max(0, grid_top - 5)
-        grid_bottom_safe = min(img.height, grid_bottom + 5)
+        grid_top = info.get("grid_top", int(img.height * 0.20))
+        grid_bottom = info.get("grid_bottom", min(int(img.height * 0.90), img.height - 32))
+        grid_x1 = max(0, info.get("grid_x1", int(img.width * 0.05)) - 10)
+        grid_x2 = min(img.width, info.get("grid_x2", int(img.width * 0.95)) + 10)
+        grid_top_safe = max(0, grid_top - 6)
+        grid_bottom_safe = min(img.height, grid_bottom + 8)
 
-        crop_box = (0, grid_top_safe, img.width, grid_bottom_safe)
+        crop_box = (grid_x1, grid_top_safe, grid_x2, grid_bottom_safe)
         crop_main = img.crop(crop_box)
         img_w = crop_main.width
 
@@ -689,26 +693,39 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
 
         # Delimitadores proporcionales al ancho de la ventana
         ref_x_max = int(img_w * 0.35)
-        desc_x_min = int(img_w * 0.12)
+        desc_x_min = int(img_w * 0.10)
         desc_x_max = int(img_w * 0.75)
-        qty_x_min = int(img_w * 0.60)
+        qty_x_min = int(img_w * 0.58)
         qty_x_max = int(img_w * 0.85)
-        price_col_x1 = max(0, int(img_w * 0.75))
-        price_col_x2 = min(img.width, int(img_w * 0.95))
+        price_col_x1 = max(0, int(img_w * 0.68))
+        price_col_x2 = min(img_w, int(img_w * 0.98))
 
-        header_keywords = {"REFERENCIA", "CODIGO", "DESCRIPCION", "CANTIDAD", "PRECIO", "TOTAL", "RENGLON", "ITEM"}
+        header_keywords = {"REFERENCIA", "CODIGO", "DESCRIPCION", "CANTIDAD", "PRECIO", "TOTAL", "RENGLON", "ITEM", "UNIDAD", "SUBTOTAL"}
+        footer_keywords = {
+            "SUBTOTAL", "SUB-TOTAL", "SUB TOTAL", "BASE IMPONIBLE", "IMPONIBLE", "EXENTO",
+            "IVA (16%)", "IVA (8%)", "IMPUESTO", "TOTAL USD", "TOTAL BS", "TOTAL GENERAL",
+            "ITEMS:", "ITEM:", "RENGLONES:", "TOTAL ITEMS", "DESCUENTO", "CARGO", "RETENCION",
+            "MONEDA", "TASA", "SALDO", "PAGAR", "CONDICION", "VENDEDOR", "CAJA", "USUARIO"
+        }
 
         for cl in clusters:
             row_words = sorted(cl["words"], key=lambda item: item["x"])
-            
-            # Omitir si es la fila de encabezados de la cuadrícula
+            row_raw_text = " ".join(w["text"].upper().strip() for w in row_words)
             upper_texts = {w["text"].upper().strip() for w in row_words}
+            
+            # 1. Omitir fila de encabezados
             if len(upper_texts.intersection(header_keywords)) >= 2:
                 continue
 
+            # 2. Omitir filas de totales / pie de cuadrícula
+            if any(fk in row_raw_text for fk in footer_keywords):
+                left_nums = [re.sub(r"[^\d]", "", w["text"]) for w in row_words if w["x"] < ref_x_max]
+                has_real_barcode = any(len(n) >= 8 for n in left_nums)
+                if not has_real_barcode:
+                    continue
+
             found_barcode = None
             found_qty = None
-            found_price = None
             desc_tokens = []
 
             # A) Buscar código de barra en la región izquierda (hasta 35% del ancho)
@@ -733,8 +750,9 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
                 for lw in left_words:
                     t = lw["text"].strip()
                     if re.match(r"^[A-Za-z0-9_-]{4,14}$", t) and not re.match(r"^\d{1,2}$", t):
-                        found_barcode = t
-                        break
+                        if t.upper() not in {"ITEM", "CODIGO", "REF", "NRO"}:
+                            found_barcode = t
+                            break
 
             # B) Buscar Cantidad y Descripción
             for w in row_words:
@@ -757,13 +775,16 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
                     desc_tokens.append(txt)
 
             # C) OCR celda por celda de Alta Precisión sobre la columna Precio para este renglón exacto
-            row_y_center = cl["y_center"] + grid_top_safe
-            cell_h = max(24, int(max(w["h"] for w in row_words) * 2.0))
+            row_y_center = cl["y_center"]
+            cell_h = max(26, int(max(w["h"] for w in row_words) * 2.2))
             y_cell_top = max(0, int(row_y_center - cell_h // 2))
-            y_cell_bottom = min(img.height, int(row_y_center + cell_h // 2))
+            y_cell_bottom = min(crop_main.height, int(row_y_center + cell_h // 2))
+
+            found_price = None
+            candidate_prices = []
 
             if y_cell_bottom > y_cell_top:
-                cell_img = img.crop((price_col_x1, y_cell_top, price_col_x2, y_cell_bottom))
+                cell_img = crop_main.crop((price_col_x1, y_cell_top, price_col_x2, y_cell_bottom))
                 cell_up = cell_img.resize((int(cell_img.width * 2.5), int(cell_img.height * 2.5)), Image.Resampling.LANCZOS)
                 res_cell = safe_ocr_recognize_pil(cell_up)
                 
@@ -772,23 +793,60 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
                         b = w.get("bounding_rect", {})
                         yc = (b.get("y", 0) + b.get("height", 0) / 2.0) / 2.5
                         txt = str(w.get("text", "")).strip()
+                        
+                        # Omitir cualquier token que sea indicador de Bolívares cuando se audita en USD
+                        if currency == "usd" and re.search(r"\b(?:bs|bs\.|b)\b", txt, re.IGNORECASE):
+                            continue
+                            
                         val = parse_price(txt, currency=currency)
                         if val > 0.0:
-                            if currency == "usd":
-                                if yc < 36.0 or found_price is None:
-                                    found_price = val
-                            else:
-                                if yc >= 20.0 or found_price is None:
-                                    found_price = val
+                            candidate_prices.append({
+                                "val": val,
+                                "yc": yc,
+                                "text": txt,
+                                "is_lower_half": (yc >= (cell_h * 0.46))
+                            })
 
-            # Fallback de precio desde los tokens generales de la derecha
-            if found_price is None:
+            # Fallback desde tokens de la fila
+            if not candidate_prices:
                 for w in row_words:
-                    if w["x"] >= int(img_w * 0.70):
-                        val = parse_price(w["text"], currency=currency)
+                    if w["x"] >= int(img_w * 0.68):
+                        txt = w["text"].strip()
+                        if currency == "usd" and re.search(r"\b(?:bs|bs\.|b)\b", txt, re.IGNORECASE):
+                            continue
+                        val = parse_price(txt, currency=currency)
                         if val > 0.0:
-                            found_price = val
-                            break
+                            is_lower = (w["y_center"] > cl["y_center"])
+                            candidate_prices.append({
+                                "val": val,
+                                "yc": w["y_center"] - (cl["y_center"] - cell_h / 2),
+                                "text": txt,
+                                "is_lower_half": is_lower
+                            })
+
+            if currency == "usd":
+                # Arriba en NEGRITA = Precio en USD. Abajo = Precio en Bolívares (Bs).
+                # Omitir los precios de abajo porque son en Bs.
+                top_candidates = [c for c in candidate_prices if not c["is_lower_half"]]
+                valid_usd_candidates = [c for c in top_candidates if c["val"] < 500.0]
+                if not valid_usd_candidates:
+                    valid_usd_candidates = top_candidates
+                    
+                if valid_usd_candidates:
+                    valid_usd_candidates.sort(key=lambda c: c["yc"])
+                    found_price = valid_usd_candidates[0]["val"]
+                elif candidate_prices:
+                    small_candidates = [c for c in candidate_prices if c["val"] < 150.0]
+                    if small_candidates:
+                        small_candidates.sort(key=lambda c: c["yc"])
+                        found_price = small_candidates[0]["val"]
+            else:
+                bottom_candidates = [c for c in candidate_prices if c["is_lower_half"]]
+                if bottom_candidates:
+                    bottom_candidates.sort(key=lambda c: c["yc"], reverse=True)
+                    found_price = bottom_candidates[0]["val"]
+                elif candidate_prices:
+                    found_price = candidate_prices[-1]["val"]
 
             b_raw = found_barcode or ""
             if b_raw:
@@ -801,15 +859,21 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
 
             desc_text = " ".join(desc_tokens).strip()
 
-            detected_rows.append({
-                "slot": len(detected_rows),
-                "y_center": cl["y_center"],
-                "barcode_raw": b_raw,
-                "barcode_norm": b_norm,
-                "desc": desc_text,
-                "qty": found_qty,
-                "price": found_price
-            })
+            is_valid_row = bool(
+                b_norm or
+                (len(desc_text) >= 4 and (found_price is not None or found_qty is not None))
+            )
+            if is_valid_row:
+                detected_rows.append({
+                    "slot": len(detected_rows),
+                    "y_center": cl["y_center"],
+                    "barcode_raw": b_raw,
+                    "barcode_norm": b_norm,
+                    "desc": desc_text,
+                    "qty": found_qty,
+                    "price": found_price,
+                    "candidates": candidate_prices
+                })
 
         # Comparación de precios para los ítems del lote
         if batch_items and check_price:
@@ -825,12 +889,15 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
                 it_clean = it_code_norm.lstrip("0") or it_code_norm
 
                 saint_price = None
+                matched_dr = None
+                
                 # 1. Coincidencia por código de barra (exacto o sufijo de 6+ dígitos)
                 for dr in detected_rows:
                     if dr["barcode_norm"]:
                         dr_clean = dr["barcode_norm"].lstrip("0") or dr["barcode_norm"]
                         if (dr_clean == it_clean or (len(dr_clean) >= 6 and len(it_clean) >= 6 and dr_clean[-6:] == it_clean[-6:])) and dr["price"] is not None:
                             saint_price = dr["price"]
+                            matched_dr = dr
                             break
 
                 # 2. Coincidencia por tokens de descripción
@@ -841,20 +908,21 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
                             dr_tokens = set(re.findall(r"[A-Za-z0-9]+", str(dr["desc"]).upper()))
                             if it_tokens and len(it_tokens.intersection(dr_tokens)) / max(len(it_tokens), 1) >= 0.35:
                                 saint_price = dr["price"]
+                                matched_dr = dr
                                 break
 
                 # 3. Fallback posicional adaptativo:
-                # Si start_global_idx == 1: desde arriba.
-                # Si start_global_idx > 1 o is_final: las filas del lote corresponden a las últimas filas visibles
                 if saint_price is None and detected_rows:
                     if start_global_idx == 1:
                         if offset < len(detected_rows) and detected_rows[offset]["price"] is not None:
                             saint_price = detected_rows[offset]["price"]
+                            matched_dr = detected_rows[offset]
                     else:
                         pos_from_end = n_items - 1 - offset
                         idx_from_end = len(detected_rows) - 1 - pos_from_end
                         if 0 <= idx_from_end < len(detected_rows) and detected_rows[idx_from_end]["price"] is not None:
                             saint_price = detected_rows[idx_from_end]["price"]
+                            matched_dr = detected_rows[idx_from_end]
 
                 if saint_price is not None and saint_price > 0.0:
                     if currency == "bs":
@@ -870,8 +938,17 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
                             saint_price = round(saint_price / 100.0, 2)
                         elif abs(saint_price / 10.0 - expected_price) <= tolerance:
                             saint_price = round(saint_price / 10.0, 2)
-                        elif currency == "usd" and saint_price >= 100.0:
-                            saint_price = round(saint_price / 100.0, 2)
+
+                        # Si entre los candidatos superiores se encuentra exactamente el precio esperado
+                        if matched_dr and "candidates" in matched_dr:
+                            for c in matched_dr.get("candidates", []):
+                                cv = c["val"]
+                                if not c.get("is_lower_half", False) or currency != "usd":
+                                    if abs(cv - expected_price) <= tolerance or \
+                                       abs(cv / 100.0 - expected_price) <= tolerance or \
+                                       abs(cv / 10.0 - expected_price) <= tolerance:
+                                        saint_price = expected_price
+                                        break
 
                         diff = abs(saint_price - expected_price)
                         if diff > tolerance:
@@ -972,7 +1049,25 @@ class OCRBatchProcessor:
                         if key:
                             self.detected_items_map[key] = r
                         else:
-                            self.detected_items_map[f"_row_{len(self.detected_items_map)}_{r['desc'][:16]}"] = r
+                            # Si no tiene código de barra, verificar si coincide en descripción con algún ítem ya detectado
+                            desc_r = r.get("desc", "").strip()
+                            tokens_r = set(re.findall(r"[A-Za-z0-9]+", desc_r.upper())) if desc_r else set()
+                            already_exists = False
+                            if tokens_r and len(tokens_r) >= 2:
+                                for ex_key, ex_item in self.detected_items_map.items():
+                                    ex_desc = ex_item.get("desc", "").strip()
+                                    ex_tokens = set(re.findall(r"[A-Za-z0-9]+", ex_desc.upper())) if ex_desc else set()
+                                    if ex_tokens and len(tokens_r.intersection(ex_tokens)) / max(len(tokens_r), 1) >= 0.45:
+                                        if r.get("price") is not None:
+                                            ex_item["price"] = r["price"]
+                                        if r.get("qty") is not None:
+                                            ex_item["qty"] = r["qty"]
+                                        if "candidates" in r:
+                                            ex_item["candidates"] = r["candidates"]
+                                        already_exists = True
+                                        break
+                            if not already_exists and (len(desc_r) >= 4 or r.get("price") is not None):
+                                self.detected_items_map[f"_row_{len(self.detected_items_map)}_{desc_r[:16]}"] = r
 
             except Exception as ex:
                 if self.on_log:
@@ -1093,21 +1188,33 @@ class OCRBatchProcessor:
                     common_tokens = det_tokens.intersection(exp_data["desc_tokens"])
                     overlap = len(common_tokens) / max(len(exp_data["desc_tokens"]), 1)
 
-                    suffix_match = False
-                    if len(det_clean) >= 6 and len(exp_data["clean_key"]) >= 6:
-                        if det_clean[-6:] == exp_data["clean_key"][-6:]:
-                            suffix_match = True
+                    code_match = False
+                    exp_clean = exp_data["clean_key"]
+                    if det_clean and exp_clean and len(det_clean) >= 5 and len(exp_clean) >= 5:
+                        if det_clean == exp_clean:
+                            code_match = True
+                        elif det_clean[-6:] == exp_clean[-6:] or det_clean[:6] == exp_clean[:6]:
+                            code_match = True
+                        elif det_clean in exp_clean or exp_clean in det_clean:
+                            code_match = True
 
                     price_match = False
                     if det_price is not None and abs(det_price - exp_data["price"]) <= tolerance:
                         price_match = True
+                    elif "candidates" in det_item:
+                        for c in det_item.get("candidates", []):
+                            if not c.get("is_lower_half", False) or currency != "usd":
+                                if abs(c["val"] - exp_data["price"]) <= tolerance:
+                                    price_match = True
+                                    break
 
                     qty_match = (det_qty is not None and det_qty == exp_data["qty"])
 
-                    if (suffix_match and (overlap >= 0.20 or price_match)) or \
-                       (overlap >= 0.30 and price_match) or \
-                       (overlap >= 0.40 and (price_match or qty_match)):
-                        score = overlap + (1.5 if suffix_match else 0.0) + (1.5 if price_match else 0.0) + (0.5 if qty_match else 0.0)
+                    if (code_match and (overlap >= 0.20 or price_match or qty_match)) or \
+                       (overlap >= 0.30 and (price_match or qty_match)) or \
+                       (overlap >= 0.40) or \
+                       (code_match and len(unmatched_expected) <= 3):
+                        score = overlap + (2.0 if code_match else 0.0) + (1.5 if price_match else 0.0) + (1.0 if qty_match else 0.0)
                         if score > best_score:
                             best_score = score
                             best_match_idx = exp_idx
@@ -1124,18 +1231,44 @@ class OCRBatchProcessor:
                         continue
                     exp_data = unmatched_expected[exp_idx]
                     
-                    for det_key in list(unmatched_detected.keys()):
+                    sorted_det_keys = sorted(
+                        list(unmatched_detected.keys()),
+                        key=lambda k: unmatched_detected[k].get("y_center", 0.0),
+                        reverse=True
+                    )
+
+                    matched_k = None
+                    for det_key in sorted_det_keys:
                         det_item = unmatched_detected[det_key]
                         det_p = det_item.get("price")
-                        p_match = (det_p is not None and abs(det_p - exp_data["price"]) <= tolerance)
+                        det_q = det_item.get("qty")
+                        
+                        p_match = False
+                        if det_p is not None and abs(det_p - exp_data["price"]) <= tolerance:
+                            p_match = True
+                        elif "candidates" in det_item:
+                            for c in det_item.get("candidates", []):
+                                if not c.get("is_lower_half", False) or currency != "usd":
+                                    if abs(c["val"] - exp_data["price"]) <= tolerance:
+                                        p_match = True
+                                        break
+
+                        q_match = (det_q is not None and det_q == exp_data["qty"])
                         det_tokens = _tokenize(det_item.get("desc", ""))
                         tokens_common = bool(det_tokens and exp_data["desc_tokens"].intersection(det_tokens))
                         
-                        if p_match or tokens_common:
-                            matched_expected[exp_idx] = det_item
-                            del unmatched_expected[exp_idx]
-                            del unmatched_detected[det_key]
+                        if p_match or q_match or tokens_common:
+                            matched_k = det_key
                             break
+
+                    # Si es el último producto de la factura y queda una fila al fondo de la cuadrícula
+                    if not matched_k and exp_idx == len(all_expected_items) and sorted_det_keys:
+                        matched_k = sorted_det_keys[0]
+
+                    if matched_k:
+                        matched_expected[exp_idx] = unmatched_detected[matched_k]
+                        del unmatched_expected[exp_idx]
+                        del unmatched_detected[matched_k]
 
             # 1. Faltantes por facturar
             missing_items = []
@@ -1151,14 +1284,35 @@ class OCRBatchProcessor:
                     "curr_sym": curr_sym
                 })
 
-            # 2. Productos ajenos al JSON
+            # 2. Productos ajenos al JSON (Filtros estrictos para cero falsos positivos)
             foreign_items = []
             for det_key, det_item in unmatched_detected.items():
+                # A) Ignorar filas auxiliares sin código de barra (_row_)
+                if det_key.startswith("_row_"):
+                    continue
+
+                code_raw = str(det_item.get("barcode_raw", det_key)).strip()
+                if not code_raw or len(code_raw) < 5:
+                    continue
+
+                code_u = code_raw.upper()
+                if any(k in code_u for k in ["TOTAL", "SUBTOTAL", "IVA", "BASE", "ITEM", "BS", "USD", "SALDO"]):
+                    continue
+
+                desc_u = str(det_item.get("desc", "")).upper()
+                if any(k in desc_u for k in ["TOTAL BS", "TOTAL USD", "SUBTOTAL", "BASE IMPONIBLE", "IVA (16%)", "EXENTO"]):
+                    continue
+
+                p = det_item.get("price", 0.0) or 0.0
+                q = det_item.get("qty", 1) or 1
+                if p <= 0.0 and q <= 0:
+                    continue
+
                 foreign_items.append({
-                    "codigo": det_item.get("barcode_raw", det_key),
+                    "codigo": code_raw,
                     "descripcion": det_item.get("desc", ""),
-                    "cantidad": det_item.get("qty", 1) if det_item.get("qty") is not None else 1,
-                    "precio": det_item.get("price", 0.0) if det_item.get("price") is not None else 0.0,
+                    "cantidad": q,
+                    "precio": p,
                     "curr_sym": curr_sym
                 })
 
@@ -1591,9 +1745,9 @@ class FacturadorSaintEngine:
 
                 if not self.config.get("test_mode", False):
                     try:
-                        # Pausa de 0.60s para que Saint termine de procesar la última fila,
+                        # Pausa de 0.85s para que Saint termine de procesar la última fila,
                         # asentar la cantidad, actualizar totales y pintar la cuadrícula completamente
-                        self._sleep(0.60)
+                        self._sleep(0.85)
                         target_hwnd = obtener_hwnd_saint()
                         fname = f"captura_lote_final_filas_{start_row}_a_{total}.png"
                         final_img, saved_path = capture_window_to_cache(target_hwnd, file_name=fname)
@@ -3816,7 +3970,13 @@ class FacturadorApp:
         for d in audit_raw.get("price_diffs", []):
             proc.differences.append(d)
         for r in audit_raw.get("detected_rows", []):
-            proc.detected_items_map[r["barcode_norm"]] = r
+            k = r.get("barcode_norm")
+            if k:
+                proc.detected_items_map[k] = r
+            else:
+                desc_r = r.get("desc", "").strip()
+                if len(desc_r) >= 4 or r.get("price") is not None:
+                    proc.detected_items_map[f"_row_{len(proc.detected_items_map)}_{desc_r[:16]}"] = r
 
         audit_res = proc.compile_audit(
             self.items_list, currency=curr, tolerance=tol, check_price=chk_price,

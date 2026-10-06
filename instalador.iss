@@ -2,7 +2,7 @@
 ; Genera el instalador oficial de Windows con accesos directos y desinstalador completo.
 
 #define MyAppName "Facturador Saint"
-#define MyAppVersion "2.56"
+#define MyAppVersion "2.57"
 #define MyAppPublisher "Saint Enterprise Automation"
 #define MyAppExeName "FacturadorSaint.exe"
 
