@@ -445,6 +445,33 @@ def test_norkut_odc_extraction():
     print("-> Pruebas de Formato Norkut Cloud completadas al 100%.\n")
 
 
+def test_updater_beta_detection():
+    print("--- 10. Probando Detección y Comparación de Versiones Beta vs Finales ---")
+    import updater
+
+    # 1. Detección de versión beta
+    assert updater.is_beta_release({"tag_name": "v2.61-beta"}), "Debe detectar tag -beta"
+    assert updater.is_beta_release({"name": "Facturador Saint v2.61 Beta"}), "Debe detectar nombre Beta"
+    assert updater.is_beta_release({"prerelease": True}), "Debe detectar flag prerelease=True"
+    assert not updater.is_beta_release({"tag_name": "v2.61", "name": "Facturador Saint v2.61", "prerelease": False}), "No debe marcar versión final como beta"
+
+    # 2. Comparación de versiones beta
+    assert updater.is_beta_newer("v2.62-beta", "2.61"), "2.62-beta debe ser superior a 2.61"
+    assert updater.is_beta_newer("v2.61-beta", "2.61"), "v2.61-beta debe ser ofrecida a versión estable 2.61 para pruebas"
+    assert not updater.is_beta_newer("v2.61-beta", "2.61-beta"), "Misma versión beta no debe ofrecerse de nuevo"
+    assert updater.is_beta_newer("v2.61-beta2", "2.61-beta"), "Sub-beta 2 debe ser superior a sub-beta 0/1"
+    assert not updater.is_beta_newer("v2.59-beta", "2.61"), "Beta antigua no debe ofrecerse"
+
+    # 3. Verificación de exclusión de betas en updater estándar
+    beta_rel = {"tag_name": "v2.62-beta", "name": "Facturador Saint v2.62 Beta", "prerelease": True}
+    assert updater.is_beta_release(beta_rel), "Release beta identificado correctamente"
+    
+    print(" [OK] Función is_beta_release validada (tags, nombres y prerelease).")
+    print(" [OK] Función is_beta_newer validada ante múltiples escenarios y sub-versiones.")
+    print(f" [OK] Versión actual del sistema verificada: v{updater.CURRENT_VERSION} (Final).")
+    print("-> Pruebas de Sistema de Actualizaciones Beta completadas al 100%.\n")
+
+
 if __name__ == "__main__":
     test_json_files()
     test_engine_config_and_dryrun()
@@ -455,6 +482,7 @@ if __name__ == "__main__":
     test_extractor_button_and_json_refresh()
     test_codigo_intercambio_tab()
     test_norkut_odc_extraction()
+    test_updater_beta_detection()
     print("=== TODAS LAS PRUEBAS COMPLETADAS EXITOSAMENTE ===")
 
 

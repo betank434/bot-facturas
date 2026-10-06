@@ -51,10 +51,13 @@ Cualquier agente que trabaje en este repositorio en cualquier PC debe seguir est
   - `_load_saved_config()`: Preserva todas las opciones ya guardadas por el usuario (ej: si desactivó OCR, se mantiene desactivado). Si en una nueva versión se introduce una nueva clave, se agrega con su valor por defecto sin alterar nada de lo que el cliente ya haya configurado.
   - `_load_replacement_rules()`: Conserva intactos todos los códigos y sus estados (`activo: True/False`). Solo agrega un nuevo código por defecto si su `codigo_origen` no existe en la lista del cliente.
 
-### C. Conexión SSL y Actualizador (Windows 10 / 11)
+### C. Conexión SSL y Sistema de Actualizaciones (Finales vs Beta)
 - `updater.py` utiliza `_get_ssl_context()` con `ctx.check_hostname = False` y `ctx.verify_mode = ssl.CERT_NONE`.
 - Esto previene el error crítico `[SSL: CERTIFICATE_VERIFY_FAILED]` en Windows 10 y en ejecutables compilados con PyInstaller.
 - El repositorio oficial de releases es `betank434/bot-facturas`.
+- **Regla Estricta de Versiones Beta**:
+  - Al iniciar el programa, la comprobación automática en segundo plano (`_auto_check_updates`) **NUNCA** debe notificar ni abrir ventanas emergentes si se publica una versión Beta (`prerelease == True` o etiqueta con "beta"). Solo comprueba y notifica versiones finales/estables.
+  - La descarga de versiones Beta se realiza **exclusivamente** cuando el usuario pulsa deliberadamente el botón `🧪 Descargar Beta` en la cabecera. Dicho botón consulta la lista de releases en GitHub, busca versiones beta con instalador `.exe`, y abre la ventana modal con estilo ámbar (`🧪`).
 
 ### D. Reglas de Inno Setup (`instalador.iss`)
 - **Version Number**: `#define MyAppVersion "X.XX"` debe coincidir exactamente con `CURRENT_VERSION` en `updater.py`.

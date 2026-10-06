@@ -18,3 +18,5 @@ Ver detalles completos y arquitectura en [AGENTS.md](AGENTS.md).
    - Al cerrar la auditoría (por "X" o "Cerrar Auditoría"), **NUNCA cerrar la app ni transferir foco a Saint de forma automática** (lo que ocultaría la app detrás de Saint). Mantener Facturador Saint restaurado, visible y enfocado con `forzar_ventana_al_frente(self.root)`.
 7. **Motor de Auditoría OCR**:
    - Delimitadores estrictos: Cantidad (0.58 a 0.78) y Precio (0.79 a 0.915). Excluir candidatos numéricos iguales a `cantidad`. En USD omitir renglones inferiores en Bolívares (Bs) y tokens > 500. Expandir grilla inferior (`h - 32px`) para abarcar siempre el último producto.
+8. **Actualizaciones Finales vs Betas**:
+   - `_auto_check_updates()` al inicio NUNCA notifica betas (solo versiones finales). Las versiones Beta solo se buscan y descargan cuando el usuario pulsa deliberadamente el botón `🧪 Descargar Beta` en la cabecera.

@@ -2572,7 +2572,17 @@ class FacturadorApp:
             relief="flat", cursor="hand2", padx=8, pady=1,
             command=self._manual_check_updates
         )
-        self.btn_update.pack(side="left", padx=(0, 8), pady=6)
+        self.btn_update.pack(side="left", padx=(0, 6), pady=6)
+
+        self.btn_beta = tk.Button(
+            head_bar,
+            text="🧪 Descargar Beta",
+            font=("Segoe UI", 8, "bold"),
+            fg="#fbbf24", bg="#1e293b", activebackground="#291e0a", activeforeground="#fef08a",
+            relief="flat", cursor="hand2", padx=8, pady=1,
+            command=self._manual_check_beta_updates
+        )
+        self.btn_beta.pack(side="left", padx=(0, 8), pady=6)
         
         self.var_topmost = tk.BooleanVar(value=False)
         self.root.wm_attributes("-topmost", False)
@@ -4438,6 +4448,36 @@ class FacturadorApp:
         else:
             msg = res.get("message", f"Ya tienes instalada la versión más reciente (v{updater.CURRENT_VERSION}).")
             messagebox.showinfo("Actualizaciones", f"{msg}\n¡Todo está al día!", parent=self.root)
+
+    def _manual_check_beta_updates(self):
+        """Verificación manual de versiones Beta invocada por el botón 'Descargar Beta'."""
+        self.btn_beta.configure(text="⏳ Buscando...", state="disabled")
+        def worker():
+            res = updater.check_for_beta_updates()
+            self.root.after(0, lambda: self._on_manual_beta_check_result(res))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_manual_beta_check_result(self, res: dict):
+        self.btn_beta.configure(text="🧪 Descargar Beta", state="normal")
+        if not res.get("success"):
+            err = res.get("error", "Error desconocido de conexión.")
+            messagebox.showwarning("Versiones Beta", f"No se pudo consultar el servidor de GitHub:\n{err}", parent=self.root)
+            return
+
+        if res.get("has_update"):
+            latest = res.get("latest_version", "")
+            self.btn_beta.configure(
+                text=f"🧪 ¡Instalar {latest}!",
+                fg="#ffffff",
+                bg="#d97706",
+                activebackground="#b45309",
+                activeforeground="#ffffff",
+                state="normal"
+            )
+            updater.UpdateModal(self.root, res, on_install_callback=self._before_update_install)
+        else:
+            msg = res.get("message", f"No hay versiones Beta disponibles en este momento.\nTu versión actual es la v{updater.CURRENT_VERSION}.")
+            messagebox.showinfo("Versiones Beta", f"{msg}", parent=self.root)
 
     def _on_update_found(self, update_info: dict, auto: bool = False):
         latest = update_info.get("latest_version", "")
