@@ -480,6 +480,38 @@ def test_updater_beta_detection():
     print("-> Pruebas de Sistema de Actualizaciones Beta completadas al 100%.\n")
 
 
+def test_grupo_abreu_ocis_extraction():
+    print("--- 11. Probando Extracción de Órdenes de Compra Grupo Abreu / Aikoz / Mas X Menos (OCIS) ---")
+    import extractor
+    casos_esperados = [
+        ("THE KIDS WORLD.15-10_AZAB.pdf", "OCIS18-0016973", 12, 1006.08, "AIKOZ CC AB"),
+        ("THE KIDS WORLD.15-10_MXMCARACOLA.pdf", "OCIS12-0036115", 53, 2936.92, "MAS X MENOS CARACOLA"),
+        ("THE KIDS WORLD.15-10_MXMECO CENTER.pdf", "OCIS15-0022922", 11, 168.72, "MAS X MENOS ECOCENTER"),
+        ("THE KIDS WORLD.15-10_MXMJORGE COLL.pdf", "OCIS13-0028895", 32, 859.53, "MAS X MENOS JORGE COLL"),
+    ]
+    procesados = 0
+    for fname, exp_fact, exp_count, exp_tot, exp_alm in casos_esperados:
+        pdf_path = Path("facturas_pdf") / fname
+        if not pdf_path.exists():
+            continue
+        data = extractor.extraer_factura_pdf(str(pdf_path))
+        assert data["factura"] == exp_fact, f"Factura incorrecta en {fname}: {data['factura']} != {exp_fact}"
+        assert len(data["productos"]) == exp_count, f"Conteo incorrecto en {fname}: {len(data['productos'])} != {exp_count}"
+        assert data["totales"]["nro_items_factura"] == exp_count
+        assert data["totales"]["total_usd"] == exp_tot, f"Total USD incorrecto en {fname}: {data['totales']['total_usd']} != {exp_tot}"
+        assert data["almacen"] == exp_alm, f"Almacén incorrecto en {fname}: {data['almacen']} != {exp_alm}"
+        assert data["moneda"] == "USD"
+        assert all(len(p["codigo_barra"]) in (8, 12) for p in data["productos"]), f"Códigos no normalizados en {fname}"
+        assert all(p["costo_unitario_usd"] > 0 and p["cantidad"] > 0 for p in data["productos"]), f"Precios/cantidades inválidos en {fname}"
+        procesados += 1
+        print(f" [OK] {fname} -> {data['factura']} ({exp_count} prods, Total USD: ${exp_tot:,.2f}, Sucursal: {exp_alm})")
+
+    if procesados == 0:
+        print(" [OMITIDO] No se encontraron archivos OCIS en facturas_pdf.")
+    else:
+        print(f"-> Pruebas de Formato Grupo Abreu / OCIS ({procesados} documentos) completadas al 100%.\n")
+
+
 if __name__ == "__main__":
     test_json_files()
     test_engine_config_and_dryrun()
@@ -491,7 +523,9 @@ if __name__ == "__main__":
     test_codigo_intercambio_tab()
     test_norkut_odc_extraction()
     test_updater_beta_detection()
+    test_grupo_abreu_ocis_extraction()
     print("=== TODAS LAS PRUEBAS COMPLETADAS EXITOSAMENTE ===")
+
 
 
 

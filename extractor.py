@@ -545,6 +545,176 @@ def extraer_orden_compra_norkut(doc, ruta_pdf):
     }
 
 
+def extraer_orden_compra_grupo_abreu(doc, ruta_pdf):
+    """
+    Extrae órdenes de compra del Grupo Abreu / Hiper Ahorro Aikoz / Mas X Menos
+    (ej. INVERSIONES BARCELONA ORIENTE 20.22 / 20.23 C.A):
+    - Número de orden: Nro OCIS18-0016973, OCIS12-0036115, etc.
+    - Cabecera: RIF, Sucursal (almacén), Fecha Emisión, Razón Social (cliente), Fecha Cierre, Moneda ($ - Dolar)
+    - Tabla: CÓDIGO | DESCRIPCIÓN | UND EMP | CANT EMP | CANT UNID | TOTAL SOLICITADO | COST UNIT SIN IVA | SUB TOTAL SIN IVA
+    - Totales: ITEM, SubTotal, Impuesto, Total
+    """
+    nombre_archivo = os.path.basename(ruta_pdf)
+    full_text = "\n".join(p.get_text("text") for p in doc)
+
+    # Reconstruir líneas horizontales de la página 1 ordenando palabras por coordenada (Y, X)
+    words_p0 = doc[0].get_text("words") if len(doc) > 0 else []
+    rows_p0 = []
+    for w in sorted(words_p0, key=lambda x: (x[1], x[0])):
+        if rows_p0 and abs(rows_p0[-1][0] - w[1]) <= 3.0:
+            rows_p0[-1][1].append(w)
+        else:
+            rows_p0.append((w[1], [w]))
+    header_lines = [" ".join(x[4] for x in sorted(rw, key=lambda x: x[0])) for _, rw in rows_p0]
+    header_text = "\n".join(header_lines)
+
+    # Número de Orden de Compra (ej. OCIS18-0016973)
+    nro_m = re.search(r'Nro\s+([A-Za-z0-9_-]+)', header_text, re.IGNORECASE)
+    if not nro_m:
+        nro_m = re.search(r'Nro\s+([A-Za-z0-9_-]+)', full_text, re.IGNORECASE)
+    numero_factura = nro_m.group(1).strip() if nro_m else Path(ruta_pdf).stem
+
+    # Cliente, RIF Cliente y Sucursal / Almacén
+    rif_cli_m = re.search(r'RIF:\s*([JVG]-?\d+)', header_text, re.IGNORECASE)
+    rif_cliente = rif_cli_m.group(1).strip() if rif_cli_m else ""
+
+    suc_m = re.search(r'Sucursal:\s*(.+?)(?:\s+Fecha\s+Emisi|$)', header_text, re.IGNORECASE)
+    almacen = suc_m.group(1).strip() if suc_m else "Almacen Principal"
+
+    rs_m = re.search(r'Razon\s+Social:\s*(.+?)(?:\s+Fecha\s+Cierre|$)', header_text, re.IGNORECASE)
+    cliente = rs_m.group(1).strip() if rs_m else "INVERSIONES BARCELONA ORIENTE"
+
+    # Fechas
+    f_emi_m = re.search(r'Fecha\s+Emisi[^:]*:\s*(\d{1,2}/\d{1,2}/\d{4})', header_text, re.IGNORECASE)
+    fecha_corte = f_emi_m.group(1).strip() if f_emi_m else None
+    if not fecha_corte:
+        f_any = re.search(r'(\d{1,2}/\d{1,2}/\d{4})', header_text)
+        fecha_corte = f_any.group(1).strip() if f_any else None
+
+    # Proveedor y RIF Proveedor
+    proveedor = "THE KIDS WORLD 2018, C.A"
+    rif_proveedor = "J-412297244"
+    prov_m = re.search(r'Proveedor:\s*([^\n/]+?)(?:\s*/\s*([JVG]-?\d+))?\s*$', header_text, re.IGNORECASE | re.MULTILINE)
+    if prov_m:
+        proveedor = prov_m.group(1).strip()
+        if prov_m.group(2):
+            rif_proveedor = prov_m.group(2).strip()
+
+    # Moneda ($ - Dolar vs Bs)
+    moneda_m = re.search(r'Moneda:\s*([^\n]+)', header_text, re.IGNORECASE)
+    moneda_raw = moneda_m.group(1).upper() if moneda_m else "$ - DOLAR"
+    is_bs = ("BS" in moneda_raw or "BOLIVAR" in moneda_raw or "VES" in moneda_raw) and ("$" not in moneda_raw and "DOLAR" not in moneda_raw and "USD" not in moneda_raw)
+    moneda = "VES" if is_bs else "USD"
+
+    # Extraer productos en todas las páginas
+    productos = []
+    for page in doc:
+        for b in page.get_text("blocks"):
+            lines = [l.strip() for l in b[4].splitlines() if l.strip()]
+            if len(lines) < 6:
+                continue
+
+            cb_raw = None
+            mid_lines = []
+            if len(lines) >= 7 and re.match(r'^\d{7,14}$', lines[0]):
+                cb_raw = lines[0]
+                mid_lines = lines[1:-5]
+            else:
+                m_inline = re.match(r'^(\d{7,14})\s+(.+)$', lines[0])
+                if m_inline and len(lines) >= 6:
+                    cb_raw = m_inline.group(1)
+                    mid_lines = [m_inline.group(2)] + lines[1:-5]
+
+            if not cb_raw:
+                continue
+
+            # Verificar que las últimas 5 líneas sean numéricas:
+            # [CANT EMP, CANT UNID, TOTAL SOLICITADO, COST UNIT SIN IVA, SUB TOTAL SIN IVA]
+            tail_nums = lines[-5:]
+            if not all(re.match(r'^[\d\.,]+$', x) for x in tail_nums):
+                continue
+
+            raw_desc = " ".join(mid_lines).replace("\ufffd", "'")
+            # Limpiar la columna UND EMP (ej. UNIDAD, NA, UND, CAJA) al final de la descripción
+            raw_desc = re.sub(
+                r'\s+(?:UNIDAD|NA|N/A|UND|UN|CAJA|BULTO|DISPLAY|PAQUETE|PZA)\s*$',
+                '',
+                raw_desc,
+                flags=re.IGNORECASE
+            )
+            desc = " ".join(raw_desc.split())
+
+            cant_emp = parsear_monto_ve(tail_nums[0])
+            cant_unid = parsear_monto_ve(tail_nums[1])
+            tot_sol = parsear_monto_ve(tail_nums[2])
+            pu_val = parsear_monto_ve(tail_nums[3])
+            sub_val = parsear_monto_ve(tail_nums[4])
+
+            cant_val = tot_sol if tot_sol > 0 else (cant_unid if cant_unid > 0 else cant_emp)
+            cant = int(cant_val) if float(cant_val).is_integer() else cant_val
+
+            norm_code, code_len, code_type = normalizar_codigo_barra(cb_raw)
+
+            productos.append({
+                "codigo_barra": norm_code,
+                "codigo_barra_original": cb_raw,
+                "longitud_codigo": code_len,
+                "tipo_codigo": code_type,
+                "descripcion": desc,
+                "cantidad": cant,
+                "costo_unitario_bs": pu_val if is_bs else 0.0,
+                "costo_unitario_usd": 0.0 if is_bs else pu_val,
+                "subtotal_bs": sub_val if is_bs else 0.0,
+                "subtotal_usd": 0.0 if is_bs else sub_val,
+                "factor_neto": 1.0,
+                "costo_neto_bs": pu_val if is_bs else 0.0,
+                "costo_neto_usd": 0.0 if is_bs else pu_val,
+                "total_bs": sub_val if is_bs else 0.0,
+                "total_usd": 0.0 if is_bs else sub_val
+            })
+
+    # Extraer totales e ITEM del documento
+    item_m = re.search(r'ITEM:\s*(\d+)', full_text, re.IGNORECASE)
+    nro_items_doc = int(item_m.group(1)) if item_m else len(productos)
+
+    sub_m = re.search(r'SubTotal\s*\n+([\d\.,]+)', full_text, re.IGNORECASE)
+    sub_doc = parsear_monto_ve(sub_m.group(1)) if sub_m else 0.0
+
+    tot_m = re.search(r'(?<!Sub)Total\s*\n+([\d\.,]+)', full_text, re.IGNORECASE)
+    tot_doc = parsear_monto_ve(tot_m.group(1)) if tot_m else 0.0
+
+    if tot_doc == 0.0 and productos:
+        key_tot = "total_bs" if is_bs else "total_usd"
+        tot_doc = round(sum(p[key_tot] for p in productos), 2)
+    if sub_doc == 0.0:
+        sub_doc = tot_doc
+
+    doc.close()
+
+    return {
+        "factura": numero_factura,
+        "archivo_origen": nombre_archivo,
+        "proveedor": proveedor,
+        "rif_proveedor": rif_proveedor,
+        "cliente": cliente,
+        "rif_cliente": rif_cliente,
+        "almacen": almacen,
+        "fecha_corte": fecha_corte,
+        "dias_corte": None,
+        "tasa_cambio": 0.0,
+        "moneda": moneda,
+        "totales": {
+            "subtotal_bs": sub_doc if is_bs else 0.0,
+            "subtotal_usd": 0.0 if is_bs else sub_doc,
+            "total_bs": tot_doc if is_bs else 0.0,
+            "total_usd": 0.0 if is_bs else tot_doc,
+            "nro_items_factura": nro_items_doc,
+            "total_items_extraidos": len(productos)
+        },
+        "productos": productos
+    }
+
+
 def extraer_factura_pdf(ruta_pdf):
     """
     Extrae toda la información de una factura en PDF:
@@ -561,6 +731,10 @@ def extraer_factura_pdf(ruta_pdf):
     # Formatos existentes: Órdenes de Compra (ODC) y Facturas de Consignación (FTC) de Sigo
     factura_match = re.search(r'((?:FTC|ODC)-[\w-]+)', p0_texto)
     if not factura_match:
+        # Detectar Formato Grupo Abreu / Aikoz / Mas X Menos (Nro OCIS... / UND EMP / COST UNIT SIN IVA)
+        if re.search(r'Nro\s+OC[A-Z0-9_-]+', p0_texto, re.IGNORECASE) or ("UND EMP" in p0_texto.upper() and "COST UNIT" in p0_texto.upper()):
+            return extraer_orden_compra_grupo_abreu(doc, ruta_pdf)
+
         # Detectar Formato Norkut Cloud / Sigo Boca del Río (#ODC... o core.norkut-cloud)
         last_page_text = doc[-1].get_text("text") if len(doc) > 0 else ""
         if "norkut-cloud" in p0_texto.lower() or "norkut-cloud" in last_page_text.lower() or re.search(r'Documento:\s*#?ODC\d+', p0_texto, re.IGNORECASE):
