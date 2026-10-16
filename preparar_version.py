@@ -105,6 +105,34 @@ def get_github_token() -> str:
                             pass
                 finally:
                     advapi32.CredFree(pcred)
+
+        # Fallback: enumerar todas las credenciales de Windows buscando github.com
+        PCREDENTIAL = ctypes.POINTER(CREDENTIAL)
+        advapi32.CredEnumerateW.argtypes = [
+            ctypes.wintypes.LPCWSTR,
+            ctypes.wintypes.DWORD,
+            ctypes.POINTER(ctypes.wintypes.DWORD),
+            ctypes.POINTER(ctypes.POINTER(PCREDENTIAL)),
+        ]
+        advapi32.CredEnumerateW.restype = ctypes.wintypes.BOOL
+        count = ctypes.wintypes.DWORD()
+        pcreds = ctypes.POINTER(PCREDENTIAL)()
+        if advapi32.CredEnumerateW(None, 0, ctypes.byref(count), ctypes.byref(pcreds)):
+            try:
+                for i in range(count.value):
+                    c = pcreds[i].contents
+                    tname = (c.TargetName or "").lower()
+                    if "github.com" in tname:
+                        raw = ctypes.string_at(c.CredentialBlob, c.CredentialBlobSize)
+                        for enc in ("utf-8", "utf-16-le"):
+                            try:
+                                s = raw.decode(enc).strip("\x00").strip()
+                                if len(s) >= 25 and s.isprintable() and " " not in s:
+                                    return s
+                            except Exception:
+                                pass
+            finally:
+                advapi32.CredFree(pcreds)
     except Exception:
         pass
 
