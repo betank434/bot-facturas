@@ -4,17 +4,17 @@ Ver detalles completos y arquitectura en [AGENTS.md](AGENTS.md).
 
 ### Resumen Rápido para el Asistente / Agente:
 1. **Repositorio**: `https://github.com/betank434/bot-facturas.git` (Owner: `betank434`, Repo: `bot-facturas`).
-2. **Subir versión y Commit Automático**: Tanto `compilar_todo.bat` como `compilar_beta.bat` incrementan automáticamente la versión en `updater.py` e `instalador.iss`, compilan el instalador y generan el commit local en Git listo para `Push origin`.
+2. **Subir versión, Commit, Push y Release Automático (1 Clic)**: Tanto `compilar_todo.bat` como `compilar_beta.bat` incrementan automáticamente la versión en `updater.py` e `instalador.iss`, compilan el instalador, hacen `git commit` + `git push origin main` y publican el Release en GitHub (subiendo el `.exe`) automáticamente.
 3. **Scripts Principales**:
    - `INSTALADOR_DEPENDENCIAS_PC.bat`: Prepara cualquier PC desde cero (Python, dependencias y herramientas).
-   - `compilar_todo.bat`: Sube a la siguiente versión Final, actualiza archivos, compila (Icono + PyInstaller + Inno Setup) y crea el commit en Git automáticamente.
-   - `compilar_beta.bat`: Sube a la siguiente versión Beta (`vX.XX.1-beta`), actualiza archivos, compila y crea el commit en Git automáticamente.
+   - `compilar_todo.bat`: Sube a la siguiente versión Final, actualiza archivos, compila, hace commit + push y publica el Release Oficial en GitHub con su `.exe`.
+   - `compilar_beta.bat`: Sube a la siguiente versión Beta (`vX.XX.1-beta`), actualiza archivos, compila, hace commit + push y publica el Release Beta (`prerelease: True`) en GitHub con su `.exe`.
    - `ejecutar_facturador.bat`: Ejecución directa del código fuente con autodetección de Python.
 4. **Persistencia y Permisos**:
    - Todo guardado de configuración usa `_resolve_storage_file()` con fallback transparente a `%LOCALAPPDATA%\FacturadorSaint\`.
    - La fusión inteligente (Smart Merge) nunca sobrescribe ajustes ni estados (`activo`) de clientes en actualizaciones; solo añade opciones o códigos nuevos.
-5. **Git Push**:
-   - Los commits se realizan localmente (automáticamente al compilar o mediante el asistente); la sincronización a GitHub se hace mediante 1 clic en GitHub Desktop (`Push origin`).
+5. **Git Push y Publicación en GitHub**:
+   - `preparar_version.py` obtiene el token desde Windows Credential Manager (`CredReadW`) para hacer `git push` y publicar Releases en GitHub sin bloqueos ni ventanas emergentes.
 6. **Ciclo de Vida de Ventana de Auditoría**:
    - Al cerrar la auditoría (por "X" o "Cerrar Auditoría"), **NUNCA cerrar la app ni transferir foco a Saint de forma automática** (lo que ocultaría la app detrás de Saint). Mantener Facturador Saint restaurado, visible y enfocado con `forzar_ventana_al_frente(self.root)`.
 7. **Motor de Auditoría OCR**:

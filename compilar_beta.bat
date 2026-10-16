@@ -124,26 +124,16 @@ if !ERRORLEVEL! NEQ 0 (
 )
 
 echo.
-echo Paso 4: Generando commit automatico en Git...
-%PYTHON_CMD% preparar_version.py --git-commit !TARGET_BETA!
+echo Paso 4: Subiendo commit y publicando Release BETA v!TARGET_BETA! en GitHub automaticamente...
+%PYTHON_CMD% preparar_version.py --publish-release !TARGET_BETA!
 
 echo.
 echo ========================================================
-echo   COMPILACION Y COMMIT DE VERSION BETA EXITOSA!
+echo   PROCESO BETA 100%% COMPLETADO CON EXITO!
 echo   Nueva version: v!TARGET_BETA! (antes: v%CURRENT_VER%)
 echo   Instalador:    dist_installer\Instalador_Facturador_Saint_v!TARGET_BETA!.exe
-echo ========================================================
-echo.
-echo Pasos para publicar esta Beta en GitHub:
-echo   1. Abre GitHub Desktop y presiona 'Push origin' (el commit ya fue creado).
-echo   2. Ve a: https://github.com/betank434/bot-facturas/releases/new
-echo   3. Tag:    v!TARGET_BETA!
-echo   4. Titulo: Facturador Saint v!TARGET_BETA!
-echo   5. Marca la casilla: [X] Set as a pre-release
-echo   6. Adjunta el archivo: dist_installer\Instalador_Facturador_Saint_v!TARGET_BETA!.exe
-echo   7. Pulsa 'Publish release'.
-echo.
-echo Tus clientes podran descargar esta beta pulsando 'Descargar Beta'.
+echo   GitHub:        Commit, Push y Release Beta (Pre-release) publicados!
 echo ========================================================
 pause
+
 

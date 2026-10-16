@@ -154,23 +154,16 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 echo.
-echo Paso 4: Generando commit automatico en Git...
-%PYTHON_CMD% preparar_version.py --git-commit !COMPILING_VER!
+echo Paso 4: Subiendo commit y publicando Release v!COMPILING_VER! en GitHub automaticamente...
+%PYTHON_CMD% preparar_version.py --publish-release !COMPILING_VER!
 
 echo.
 echo ========================================================
-echo   COMPILACION Y COMMIT DE VERSION FINAL EXITOSA!
+echo   PROCESO 100%% COMPLETADO CON EXITO!
 echo   Nueva version: v!COMPILING_VER! (antes: v!PREV_VER!)
 echo   Instalador:    dist_installer\Instalador_Facturador_Saint_v!COMPILING_VER!.exe
-echo ========================================================
-echo.
-echo Pasos para publicar este Release Oficial en GitHub:
-echo   1. Abre GitHub Desktop y presiona 'Push origin' (el commit ya fue creado).
-echo   2. Ve a: https://github.com/betank434/bot-facturas/releases/new
-echo   3. Tag:    v!COMPILING_VER!
-echo   4. Titulo: Facturador Saint v!COMPILING_VER!
-echo   5. Adjunta: dist_installer\Instalador_Facturador_Saint_v!COMPILING_VER!.exe
-echo   6. Pulsa 'Publish release' (NO marcar pre-release).
+echo   GitHub:        Commit, Push y Release publicados automaticamente!
 echo ========================================================
 pause
+
 

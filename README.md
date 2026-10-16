@@ -26,14 +26,14 @@ O directamente con Python:
 python facturador_saint.py
 ```
 
-### 3. Compilar Ejecutable e Instalador Oficial (con Subida de Versión y Commit Automático)
+### 3. Compilar y Publicar Release en GitHub en 1 Clic
 ```bat
 compilar_todo.bat
 ```
 *(O `compilar_beta.bat` para versiones Beta)*.
 - Incrementa automáticamente la versión en `updater.py` e `instalador.iss`.
 - Compila el ejecutable e instalador en `dist_installer/`.
-- Genera automáticamente el commit local en Git listo para presionar **Push origin** en GitHub Desktop.
+- Crea el commit local, hace `git push origin main` y publica el Release en GitHub (subiendo el instalador `.exe`) de forma 100% automática.
 
 ---
 

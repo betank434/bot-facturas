@@ -98,45 +98,31 @@ El motor de extracción detecta y procesa automáticamente los siguientes format
 
 ---
 
-## 4. Procedimiento para Lanzar una Nueva Versión Final (Release Oficial)
+## 4. Procedimiento para Lanzar una Nueva Versión Final (Release Oficial en 1 Clic)
 
-1. **Ejecutar `compilar_todo.bat` (1 solo clic, 100% automatizado)**:
-   - Sube automáticamente la versión a la siguiente Final (ej: de `2.62` a `2.63`) y actualiza `updater.py` e `instalador.iss` mediante `preparar_version.py`.
+1. **Ejecutar doble clic en `compilar_todo.bat` (100% Automatizado de principio a fin)**:
+   - Consulta la versión actual en archivos y en GitHub Releases, sube automáticamente a la siguiente versión Final (ej: de `2.62` a `2.63`) y actualiza `updater.py` e `instalador.iss`.
    - Genera el icono oficial (`app_icon.ico`), compila con PyInstaller y empaqueta el instalador con Inno Setup en `dist_installer\Instalador_Facturador_Saint_vX.XX.exe`.
-   - **Genera automáticamente el commit local en Git** (`Release vX.XX: Compilacion y actualizacion automatica de version`) incluyendo todos los archivos modificados.
-2. **Subir cambios a GitHub (1 clic)**:
-   - En **GitHub Desktop**, presionar **Push origin** (el commit ya fue creado por el compilador).
-3. **Crear el Release en GitHub**:
-   - URL: `https://github.com/betank434/bot-facturas/releases/new`
-   - **Tag**: `vX.XX` (ej: `v2.63`)
-   - **Título**: `Facturador Saint vX.XX`
-   - **Adjunto**: Subir `dist_installer\Instalador_Facturador_Saint_vX.XX.exe`.
-   - Publicar el release (NO marcar pre-release).
+   - **Genera el commit en Git y hace `git push origin main` automáticamente** usando el token de Windows Credential Manager (`CredReadW` sin bloqueos ni ventanas emergentes).
+   - **Crea automáticamente el Release Oficial (`vX.XX`, `prerelease: False`) en GitHub y sube el instalador `.exe`** (`Instalador_Facturador_Saint_vX.XX.exe`) vía API de GitHub.
 
 Al abrir cualquier cliente con una versión anterior (incluso usuarios que estén en versiones Beta), la aplicación detectará automáticamente la nueva versión final en segundo plano y ofrecerá la actualización en 1 clic.
 
 ---
 
-## 5. Procedimiento para Compilar y Publicar Versiones Beta
+## 5. Procedimiento para Compilar y Publicar Versiones Beta (1 Clic)
 
 Las versiones Beta trabajan directamente sobre la versión actual utilizando la nomenclatura `vX.XX.1-beta`, `vX.XX.2-beta`, etc. (ej: sobre la `2.62`, las betas son `v2.62.1-beta`, `v2.62.2-beta`), y cuando se terminen las pruebas, la versión definitiva será `v2.63`.
 
-1. **Ejecutar `compilar_beta.bat` (1 solo clic, 100% automatizado)**:
+1. **Ejecutar doble clic en `compilar_beta.bat` (100% Automatizado de principio a fin)**:
    - Sube automáticamente la versión a la siguiente Beta (ej: `2.62.1-beta`) y la actualiza en `updater.py` e `instalador.iss`.
    - Genera el icono, compila con PyInstaller y empaqueta con Inno Setup en `dist_installer\Instalador_Facturador_Saint_vX.XX.X-beta.exe`.
-   - **Genera automáticamente el commit local en Git** (`Release Beta vX.XX.X-beta: Compilacion y actualizacion automatica de version`).
-2. **Subir cambios a GitHub (1 clic)**:
-   - En **GitHub Desktop**, presionar **Push origin** (el commit ya fue creado por el compilador).
-3. **Crear el Release Beta en GitHub**:
-   - URL: `https://github.com/betank434/bot-facturas/releases/new`
-   - **Tag**: `vX.XX.X-beta` (ej: `v2.62.1-beta`)
-   - **Título**: `Facturador Saint vX.XX.X Beta`
-   - **Casilla obligatoria**: Marcar `[X] Set as a pre-release`.
-   - **Adjunto**: Subir `dist_installer\Instalador_Facturador_Saint_vX.XX.X-beta.exe`.
-   - Publicar release.
+   - **Genera el commit en Git y hace `git push origin main` automáticamente**.
+   - **Crea automáticamente el Release Beta en GitHub con `prerelease: True` (`[X] Set as a pre-release`) y sube el instalador `.exe`** (`Instalador_Facturador_Saint_vX.XX.X-beta.exe`).
 
 **Comportamiento en clientes**:
 - Al iniciar la app: **NO molestará a ningún cliente** (cero ventanas emergentes de beta al inicio).
 - Al pulsar `🧪 Descargar Beta` en la cabecera: Detectará `vX.XX.X-beta` y permitirá descargarla e instalarla en 1 solo clic.
+
 
 
