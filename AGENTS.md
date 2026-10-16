@@ -85,12 +85,23 @@ Cualquier agente que trabaje en este repositorio en cualquier PC debe seguir est
 - **Captura de Última Fila**: `grid_bottom` se expande hasta `h - 32px` (hasta 91% del alto de la ventana) para asegurar que el último renglón visible nunca quede cortado ni se catalogue falsamente como faltante.
 - **Prevención de Falsos Positivos**: Filas con totales ("TOTAL", "SUBTOTAL", "IVA", "BASE") y claves sintéticas `_row_` se excluyen de la lista de productos ajenos.
 
+### G. Formatos de Documentos Soportados (`extractor.py`)
+El motor de extracción detecta y procesa automáticamente los siguientes formatos (sin romper ninguno al agregar nuevos):
+1. **Sigo, S.A. - Facturas de Consignación (`FTC-...`) y Órdenes de Compra (`ODC-...`)**: Extracción de precios en Bs. y USD, tasa de cambio y normalización de códigos a 8 y 12 dígitos.
+2. **Grupo Abreu / Hiper Ahorro Aikoz / Mas X Menos (`Nro OCIS...` - Inversiones Barcelona Oriente 20.22 / 20.23, C.A)**:
+   - Función `extraer_orden_compra_grupo_abreu(doc, ruta_pdf)`.
+   - Extrae `Nro OCIS...`, `RIF`, `Sucursal` (almacén), `Razon Social` (cliente), `Fecha Emisión` y `Moneda` (`$ - Dolar`).
+   - Limpia el sufijo `UND EMP` (`UNIDAD` / `NA`) de la descripción, normaliza códigos de 11 dígitos a 12 dígitos (UPC-A con 0 inicial) y valida `ITEM`, `SubTotal` y `Total` en USD.
+3. **Norkut Cloud (`Documento: #ODC...` / Sigo Boca del Río)**: Función `extraer_orden_compra_norkut(doc, ruta_pdf)`, calcula tasa de cambio implícita desde el resumen `VES / USD`.
+4. **Guuao (`Orden de compra #P...`)**: Función `extraer_orden_compra_guuao(doc, ruta_pdf)` para órdenes expresadas únicamente en Bolívares (`moneda: "VES"`).
+5. **Presupuestos y Catálogos en Excel (`.xlsx` / `.xls`)**: Función `extraer_presupuesto_excel(ruta_excel)`.
+
 ---
 
 ## 4. Procedimiento para Lanzar una Nueva Versión Final (Release Oficial)
 
 1. **Incrementar la versión (Regla de oro: SIEMPRE versión nueva mayor, nunca repetir)**:
-   - Ejemplo: de `2.61` a `2.62`.
+   - Ejemplo: de `2.62` a `2.63`.
    - Se puede usar: `python preparar_version.py --set-final`
    - O manualmente en `updater.py` (`CURRENT_VERSION = "2.62"`) y `instalador.iss` (`#define MyAppVersion "2.62"`).
 2. **Compilar todo con 1 solo comando**:
@@ -112,11 +123,11 @@ Al abrir cualquier cliente con una versión anterior (incluso usuarios que esté
 
 ## 5. Procedimiento para Compilar y Publicar Versiones Beta
 
-Las versiones Beta trabajan directamente sobre la versión actual utilizando la nomenclatura `vX.XX.1-beta`, `vX.XX.2-beta`, etc. (ej: sobre la `2.61`, las betas son `v2.61.1-beta`, `v2.61.2-beta`), y cuando se terminen las pruebas, la versión definitiva será `v2.62`.
+Las versiones Beta trabajan directamente sobre la versión actual utilizando la nomenclatura `vX.XX.1-beta`, `vX.XX.2-beta`, etc. (ej: sobre la `2.62`, las betas son `v2.62.1-beta`, `v2.62.2-beta`), y cuando se terminen las pruebas, la versión definitiva será `v2.63`.
 
 1. **Compilar la Beta con 1 solo clic**:
    - Ejecutar doble clic en `compilar_beta.bat`.
-   - Detecta automáticamente la versión actual y sugiere la siguiente beta (ej: `2.61.1-beta`).
+   - Detecta automáticamente la versión actual y sugiere la siguiente beta (ej: `2.62.1-beta`).
    - Presionar **ENTER** para aceptar la sugerencia (o escribir una versión personalizada).
    - Genera el icono, compila con PyInstaller y empaqueta con Inno Setup de forma 100% automática.
    - *(El instalador resultante queda en: `dist_installer\Instalador_Facturador_Saint_vX.XX.X-beta.exe`)*.
@@ -124,7 +135,7 @@ Las versiones Beta trabajan directamente sobre la versión actual utilizando la 
    - En GitHub Desktop, presionar **Push origin**.
 3. **Crear el Release Beta en GitHub**:
    - URL: `https://github.com/betank434/bot-facturas/releases/new`
-   - **Tag**: `vX.XX.X-beta` (ej: `v2.61.1-beta`)
+   - **Tag**: `vX.XX.X-beta` (ej: `v2.62.1-beta`)
    - **Título**: `Facturador Saint vX.XX.X Beta`
    - **Casilla obligatoria**: Marcar `[X] Set as a pre-release`.
    - **Adjunto**: Subir `dist_installer\Instalador_Facturador_Saint_vX.XX.X-beta.exe`.
@@ -133,3 +144,4 @@ Las versiones Beta trabajan directamente sobre la versión actual utilizando la 
 **Comportamiento en clientes**:
 - Al iniciar la app: **NO molestará a ningún cliente** (cero ventanas emergentes de beta al inicio).
 - Al pulsar `🧪 Descargar Beta` en la cabecera: Detectará `vX.XX.X-beta` y permitirá descargarla e instalarla en 1 solo clic.
+

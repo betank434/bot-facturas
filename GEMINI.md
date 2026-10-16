@@ -21,4 +21,7 @@ Ver detalles completos y arquitectura en [AGENTS.md](AGENTS.md).
 8. **Actualizaciones Finales vs Betas**:
    - `_auto_check_updates()` al inicio NUNCA notifica betas (solo versiones finales). Las versiones Beta solo se buscan y descargan cuando el usuario pulsa deliberadamente el botón `🧪 Descargar Beta` en la cabecera.
 9. **Compilación y Nomenclatura de Betas**:
-   - Para versiones Beta usar `compilar_beta.bat` con nomenclatura `vX.XX.1-beta`, `vX.XX.2-beta`, etc. (ej: sobre 2.61, las betas son `v2.61.1-beta`). La versión final siguiente será `v2.62` (compilada con `compilar_todo.bat`).
+   - Para versiones Beta usar `compilar_beta.bat` con nomenclatura `vX.XX.1-beta`, `vX.XX.2-beta`, etc. (ej: sobre 2.62, las betas son `v2.62.1-beta`). La versión final siguiente será `v2.63` (compilada con `compilar_todo.bat`).
+10. **Formatos Soportados en `extractor.py`**:
+   - Sigo (`FTC-...` / `ODC-...`), Grupo Abreu / Aikoz / Mas X Menos (`Nro OCIS...`), Norkut Cloud (`#ODC...`), Guuao (`Orden de compra #P...`) y Presupuestos Excel (`.xlsx` / `.xls`). Siempre preservar todos los formatos existentes al añadir uno nuevo.
+
