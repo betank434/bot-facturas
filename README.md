@@ -44,6 +44,6 @@ compilar_todo.bat
 - **Auditoría OCR en Tiempo Real**: Validación multinivel mediante `winocr` nativo de Windows 10/11. Panel detallado de discrepancias (faltantes, ajenos y diferencias de precio en USD vs Bs) con ciclo de vida seguro que preserva la visibilidad y foco de Facturador Saint.
 - **Persistencia Inteligente**: Configuración guardada a prueba de fallos de permisos en Windows (compatible con `C:\Program Files` mediante `%LOCALAPPDATA%\FacturadorSaint`).
 - **Fusión Inteligente (Smart Merge)**: Las actualizaciones preservan 100% de los ajustes y códigos activos de cada cliente, agregando solo nuevas opciones.
-- **Actualizador 1-Clic**: Detección y descarga automática de versiones vía GitHub Releases (`betank434/bot-facturas`).
+- **Actualizador y Publicador 1-Clic**: Detección y descarga automática de versiones vía GitHub Releases (`betank434/bot-facturas`), y publicación desatendida desde los compiladores usando el Administrador de Credenciales de Windows sin exponer tokens en código y aislando siempre las facturas locales.
 
 Para detalles de arquitectura y reglas del proyecto, consultar [AGENTS.md](AGENTS.md).

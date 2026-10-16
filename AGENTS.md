@@ -13,7 +13,12 @@ Cualquier agente que trabaje en este repositorio en cualquier PC debe seguir est
 - **Rama principal**: `main`
 - **Herramienta recomendada**: GitHub Desktop o Git CLI.
 - **Ruta de Git en GitHub Desktop**: `C:\Users\<Usuario>\AppData\Local\GitHubDesktop\app-*\resources\app\git\cmd\git.exe`
-- **Protocolo de subida (Push)**: Para evitar que comandos de terminal se queden colgados esperando autenticación gráfica de Windows (`git-credential-manager`), el asistente realiza commits locales y el usuario pulsa **Push origin** en GitHub Desktop (1 clic).
+- **Protocolo de Subida y Publicación Automática (Push + Release)**:
+  - `preparar_version.py` obtiene el token en memoria desde el Administrador de Credenciales de Windows (`CredReadW` / `CredEnumerateW` en `advapi32.dll`) y ejecuta `git push origin main` usando `-c credential.helper=` y cabecera `http.extraheader` para evitar bloqueos de `git-credential-manager`.
+  - Comandos directos disponibles para el agente o los compiladores:
+    - `python preparar_version.py --git-commit <version>`: Crea el commit local.
+    - `python preparar_version.py --git-push`: Sube los commits a `origin/main` en GitHub sin ventanas emergentes.
+    - `python preparar_version.py --publish-release <version>`: Hace commit, push, crea el Release en GitHub (Oficial o Beta Pre-release) y sube el instalador `.exe`.
 
 ---
 
@@ -95,6 +100,12 @@ El motor de extracción detecta y procesa automáticamente los siguientes format
 3. **Norkut Cloud (`Documento: #ODC...` / Sigo Boca del Río)**: Función `extraer_orden_compra_norkut(doc, ruta_pdf)`, calcula tasa de cambio implícita desde el resumen `VES / USD`.
 4. **Guuao (`Orden de compra #P...`)**: Función `extraer_orden_compra_guuao(doc, ruta_pdf)` para órdenes expresadas únicamente en Bolívares (`moneda: "VES"`).
 5. **Presupuestos y Catálogos en Excel (`.xlsx` / `.xls`)**: Función `extraer_presupuesto_excel(ruta_excel)`.
+
+### H. Seguridad de Credenciales y Protección de Datos (Regla Estricta)
+- **Cero Credenciales en Código**: Está terminantemente prohibido escribir tokens, claves o contraseñas de GitHub en ningún archivo del repositorio (`.py`, `.bat`, `.iss`, `.json`, `.md` ni `.git/config`).
+- **Autenticación Solo en Memoria Local**: `get_github_token()` en `preparar_version.py` lee la sesión de GitHub Desktop directamente desde el Administrador de Credenciales de Windows (`CredReadW` / `CredEnumerateW`) en memoria RAM únicamente en la PC del desarrollador al compilar/publicar.
+- **Aislamiento del Ejecutable de Clientes**: `preparar_version.py` es exclusivamente una herramienta de desarrollo y compilación; **NUNCA** debe empaquetarse dentro de `FacturadorSaint.exe` (`build_exe.py`). El módulo `updater.py` en los clientes solo realiza peticiones públicas `GET` sin autenticación.
+- **Exclusión de Facturas y Capturas Reales**: `.gitignore`, `build_exe.py` e `instalador.iss` excluyen y limpian siempre `facturas_pdf/*`, `facturas_json/*` y `cache_capturas/*` para que ningún documento real se suba a GitHub ni se incluya en el instalador `.exe`.
 
 ---
 

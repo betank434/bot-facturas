@@ -25,5 +25,8 @@ Ver detalles completos y arquitectura en [AGENTS.md](AGENTS.md).
    - Para versiones Beta usar `compilar_beta.bat` con nomenclatura `vX.XX.1-beta`, `vX.XX.2-beta`, etc. (ej: sobre 2.62, las betas son `v2.62.1-beta`). La versión final siguiente será `v2.63` (compilada con `compilar_todo.bat`).
 10. **Formatos Soportados en `extractor.py`**:
    - Sigo (`FTC-...` / `ODC-...`), Grupo Abreu / Aikoz / Mas X Menos (`Nro OCIS...`), Norkut Cloud (`#ODC...`), Guuao (`Orden de compra #P...`) y Presupuestos Excel (`.xlsx` / `.xls`). Siempre preservar todos los formatos existentes al añadir uno nuevo.
+11. **Seguridad y Privacidad**:
+   - Jamás escribir tokens de GitHub en archivos ni en `.git/config` (solo lectura en RAM vía `CredReadW` en `preparar_version.py`, el cual no se incluye en `FacturadorSaint.exe`). Mantener siempre excluidos `facturas_pdf/*`, `facturas_json/*` y `cache_capturas/*` en `.gitignore` y en el instalador.
+
 
 
