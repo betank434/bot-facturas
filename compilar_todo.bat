@@ -52,11 +52,28 @@ if not defined PYTHON_CMD (
     exit /b 1
 )
 
-for /f "delims=" %%C in ('%PYTHON_CMD% preparar_version.py --current 2^>nul') do set "COMPILING_VER=%%C"
-if defined COMPILING_VER echo Version a compilar: %COMPILING_VER%
+:: 2. Subir automáticamente a la siguiente versión Final (o usar argumento si se especificó)
+for /f "delims=" %%C in ('%PYTHON_CMD% preparar_version.py --current 2^>nul') do set "PREV_VER=%%C"
+for /f "delims=" %%V in ('%PYTHON_CMD% preparar_version.py --next-final 2^>nul') do set "NEXT_FINAL=%%V"
+
+set "COMPILING_VER="
+if "%~1"=="" (
+    set "COMPILING_VER=!NEXT_FINAL!"
+) else (
+    set "COMPILING_VER=%~1"
+)
+
+echo Version anterior en archivos: !PREV_VER!
+echo -> Subiendo automaticamente a nueva version Final: !COMPILING_VER! ...
+%PYTHON_CMD% preparar_version.py --set !COMPILING_VER!
+if !ERRORLEVEL! NEQ 0 (
+    echo [ERROR] No se pudo actualizar la version en updater.py e instalador.iss.
+    pause
+    exit /b 1
+)
 echo.
 
-:: 2. Auto-verificar si PyInstaller está instalado, y si falta instalarlo de inmediato
+:: 3. Auto-verificar si PyInstaller está instalado, y si falta instalarlo de inmediato
 %PYTHON_CMD% -c "import PyInstaller" >nul 2>&1
 if !ERRORLEVEL! NEQ 0 (
     echo [AVISO] PyInstaller no esta instalado en este Python.
@@ -137,8 +154,23 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 echo.
+echo Paso 4: Generando commit automatico en Git...
+%PYTHON_CMD% preparar_version.py --git-commit !COMPILING_VER!
+
+echo.
 echo ========================================================
-echo   COMPILACION Y GENERACION DE INSTALADOR EXITOSA!
-echo   Ubicacion: dist_installer\
+echo   COMPILACION Y COMMIT DE VERSION FINAL EXITOSA!
+echo   Nueva version: v!COMPILING_VER! (antes: v!PREV_VER!)
+echo   Instalador:    dist_installer\Instalador_Facturador_Saint_v!COMPILING_VER!.exe
+echo ========================================================
+echo.
+echo Pasos para publicar este Release Oficial en GitHub:
+echo   1. Abre GitHub Desktop y presiona 'Push origin' (el commit ya fue creado).
+echo   2. Ve a: https://github.com/betank434/bot-facturas/releases/new
+echo   3. Tag:    v!COMPILING_VER!
+echo   4. Titulo: Facturador Saint v!COMPILING_VER!
+echo   5. Adjunta: dist_installer\Instalador_Facturador_Saint_v!COMPILING_VER!.exe
+echo   6. Pulsa 'Publish release' (NO marcar pre-release).
 echo ========================================================
 pause
+

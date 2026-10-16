@@ -4,16 +4,17 @@ Ver detalles completos y arquitectura en [AGENTS.md](AGENTS.md).
 
 ### Resumen Rápido para el Asistente / Agente:
 1. **Repositorio**: `https://github.com/betank434/bot-facturas.git` (Owner: `betank434`, Repo: `bot-facturas`).
-2. **Subir versión**: SIEMPRE incrementar la versión en `updater.py` y `instalador.iss`. NUNCA repetir una versión ya publicada en GitHub Releases.
+2. **Subir versión y Commit Automático**: Tanto `compilar_todo.bat` como `compilar_beta.bat` incrementan automáticamente la versión en `updater.py` e `instalador.iss`, compilan el instalador y generan el commit local en Git listo para `Push origin`.
 3. **Scripts Principales**:
    - `INSTALADOR_DEPENDENCIAS_PC.bat`: Prepara cualquier PC desde cero (Python, dependencias y herramientas).
-   - `compilar_todo.bat`: Compilación completa desatendida (Icono + PyInstaller + Inno Setup).
+   - `compilar_todo.bat`: Sube a la siguiente versión Final, actualiza archivos, compila (Icono + PyInstaller + Inno Setup) y crea el commit en Git automáticamente.
+   - `compilar_beta.bat`: Sube a la siguiente versión Beta (`vX.XX.1-beta`), actualiza archivos, compila y crea el commit en Git automáticamente.
    - `ejecutar_facturador.bat`: Ejecución directa del código fuente con autodetección de Python.
 4. **Persistencia y Permisos**:
    - Todo guardado de configuración usa `_resolve_storage_file()` con fallback transparente a `%LOCALAPPDATA%\FacturadorSaint\`.
    - La fusión inteligente (Smart Merge) nunca sobrescribe ajustes ni estados (`activo`) de clientes en actualizaciones; solo añade opciones o códigos nuevos.
 5. **Git Push**:
-   - Los commits se realizan localmente; la sincronización a GitHub se hace mediante 1 clic en GitHub Desktop (`Push origin`).
+   - Los commits se realizan localmente (automáticamente al compilar o mediante el asistente); la sincronización a GitHub se hace mediante 1 clic en GitHub Desktop (`Push origin`).
 6. **Ciclo de Vida de Ventana de Auditoría**:
    - Al cerrar la auditoría (por "X" o "Cerrar Auditoría"), **NUNCA cerrar la app ni transferir foco a Saint de forma automática** (lo que ocultaría la app detrás de Saint). Mantener Facturador Saint restaurado, visible y enfocado con `forzar_ventana_al_frente(self.root)`.
 7. **Motor de Auditoría OCR**:
@@ -24,4 +25,5 @@ Ver detalles completos y arquitectura en [AGENTS.md](AGENTS.md).
    - Para versiones Beta usar `compilar_beta.bat` con nomenclatura `vX.XX.1-beta`, `vX.XX.2-beta`, etc. (ej: sobre 2.62, las betas son `v2.62.1-beta`). La versión final siguiente será `v2.63` (compilada con `compilar_todo.bat`).
 10. **Formatos Soportados en `extractor.py`**:
    - Sigo (`FTC-...` / `ODC-...`), Grupo Abreu / Aikoz / Mas X Menos (`Nro OCIS...`), Norkut Cloud (`#ODC...`), Guuao (`Orden de compra #P...`) y Presupuestos Excel (`.xlsx` / `.xls`). Siempre preservar todos los formatos existentes al añadir uno nuevo.
+
 

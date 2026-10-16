@@ -26,11 +26,14 @@ O directamente con Python:
 python facturador_saint.py
 ```
 
-### 3. Compilar Ejecutable e Instalador Oficial
+### 3. Compilar Ejecutable e Instalador Oficial (con Subida de Versión y Commit Automático)
 ```bat
 compilar_todo.bat
 ```
-El instalador generado se guardará en la carpeta `dist_installer/`.
+*(O `compilar_beta.bat` para versiones Beta)*.
+- Incrementa automáticamente la versión en `updater.py` e `instalador.iss`.
+- Compila el ejecutable e instalador en `dist_installer/`.
+- Genera automáticamente el commit local en Git listo para presionar **Push origin** en GitHub Desktop.
 
 ---
 

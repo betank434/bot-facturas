@@ -59,25 +59,19 @@ if !ERRORLEVEL! NEQ 0 (
     %PYTHON_CMD% -m pip install pyinstaller
 )
 
-:: 3. Obtener sugerencia de próxima versión beta
+:: 3. Subir automáticamente a la próxima versión Beta (o usar argumento si se especificó)
 for /f "delims=" %%V in ('%PYTHON_CMD% preparar_version.py --next-beta') do set "SUGGESTED_BETA=%%V"
 for /f "delims=" %%C in ('%PYTHON_CMD% preparar_version.py --current') do set "CURRENT_VER=%%C"
 
-echo Version actual en el sistema: %CURRENT_VER%
-echo Proxima version Beta recomendada: %SUGGESTED_BETA%
-echo.
-
 set "TARGET_BETA="
 if "%~1"=="" (
-    set /p "TARGET_BETA=Introduce version Beta [Presiona ENTER para usar %SUGGESTED_BETA%]: "
+    set "TARGET_BETA=%SUGGESTED_BETA%"
 ) else (
     set "TARGET_BETA=%~1"
 )
 
-if "!TARGET_BETA!"=="" set "TARGET_BETA=%SUGGESTED_BETA%"
-
-echo.
-echo -> Estableciendo version Beta: !TARGET_BETA! ...
+echo Version anterior en archivos: %CURRENT_VER%
+echo -> Subiendo automaticamente a nueva version Beta: !TARGET_BETA! ...
 %PYTHON_CMD% preparar_version.py --set !TARGET_BETA!
 if !ERRORLEVEL! NEQ 0 (
     echo Error al actualizar archivos de version.
@@ -130,13 +124,18 @@ if !ERRORLEVEL! NEQ 0 (
 )
 
 echo.
+echo Paso 4: Generando commit automatico en Git...
+%PYTHON_CMD% preparar_version.py --git-commit !TARGET_BETA!
+
+echo.
 echo ========================================================
-echo   COMPILACION DE VERSION BETA EXITOSA!
-echo   Instalador: dist_installer\Instalador_Facturador_Saint_v!TARGET_BETA!.exe
+echo   COMPILACION Y COMMIT DE VERSION BETA EXITOSA!
+echo   Nueva version: v!TARGET_BETA! (antes: v%CURRENT_VER%)
+echo   Instalador:    dist_installer\Instalador_Facturador_Saint_v!TARGET_BETA!.exe
 echo ========================================================
 echo.
 echo Pasos para publicar esta Beta en GitHub:
-echo   1. Abre GitHub Desktop y presiona 'Push origin'.
+echo   1. Abre GitHub Desktop y presiona 'Push origin' (el commit ya fue creado).
 echo   2. Ve a: https://github.com/betank434/bot-facturas/releases/new
 echo   3. Tag:    v!TARGET_BETA!
 echo   4. Titulo: Facturador Saint v!TARGET_BETA!
@@ -144,6 +143,7 @@ echo   5. Marca la casilla: [X] Set as a pre-release
 echo   6. Adjunta el archivo: dist_installer\Instalador_Facturador_Saint_v!TARGET_BETA!.exe
 echo   7. Pulsa 'Publish release'.
 echo.
-echo Tus clientes en v2.61 podran descargar esta beta pulsando 'Descargar Beta'.
+echo Tus clientes podran descargar esta beta pulsando 'Descargar Beta'.
 echo ========================================================
 pause
+
