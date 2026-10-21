@@ -110,7 +110,26 @@ if not defined ISCC (
 
 if not defined ISCC (
     echo.
-    echo [ERROR] No se pudo encontrar Inno Setup 6 (ISCC.exe).
+    echo [AVISO] Inno Setup 6 no esta instalado en este equipo.
+    echo Instalando Inno Setup 6 automaticamente...
+    winget install JRSoftware.InnoSetup --accept-package-agreements --accept-source-agreements
+    
+    if !ERRORLEVEL! NEQ 0 (
+        echo [INFO] Descargando instalador oficial de Inno Setup...
+        powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; (New-Object Net.WebClient).DownloadFile('https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe', '$env:TEMP\innosetup.exe'); Start-Process '$env:TEMP\innosetup.exe' -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-' -Wait"
+    )
+    
+    if exist "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" set "ISCC=%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe"
+    if not defined ISCC if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" set "ISCC=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
+    if not defined ISCC if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe" set "ISCC=%ProgramFiles%\Inno Setup 6\ISCC.exe"
+    if not defined ISCC (
+        for /f "delims=" %%I in ('where.exe ISCC.exe 2^>nul') do set "ISCC=%%I"
+    )
+)
+
+if not defined ISCC (
+    echo.
+    echo [ERROR] No se pudo encontrar Inno Setup 6 - ISCC.exe.
     echo Por favor descargalo e instalalo desde https://jrsoftware.org/isdl.php
     pause
     exit /b 1

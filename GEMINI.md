@@ -10,9 +10,10 @@ Ver detalles completos y arquitectura en [AGENTS.md](AGENTS.md).
    - `compilar_todo.bat`: Sube a la siguiente versión Final, actualiza archivos, compila, hace commit + push y publica el Release Oficial en GitHub con su `.exe`.
    - `compilar_beta.bat`: Sube a la siguiente versión Beta (`vX.XX.1-beta`), actualiza archivos, compila, hace commit + push y publica el Release Beta (`prerelease: True`) en GitHub con su `.exe`.
    - `ejecutar_facturador.bat`: Ejecución directa del código fuente con autodetección de Python.
-4. **Persistencia y Permisos**:
+4. **Persistencia, Permisos e Intercambio / Bloqueo de Códigos**:
    - Todo guardado de configuración usa `_resolve_storage_file()` con fallback transparente a `%LOCALAPPDATA%\FacturadorSaint\`.
    - La fusión inteligente (Smart Merge) nunca sobrescribe ajustes ni estados (`activo`) de clientes en actualizaciones; solo añade opciones o códigos nuevos.
+   - En `codigos_reemplazo.json` y en la pestaña `🔄 Intercambio / 🚫 Bloqueo de Códigos` se soportan reglas de intercambio (`accion: "intercambiar"`) y de bloqueo (`accion: "bloquear"`, `codigo_destino: "BLOQUEADO"`, ej: `02206705`). Al cargar una factura JSON con códigos bloqueados, se avisa al usuario antes de facturar y se excluyen automáticamente del tipeo en Saint.
 5. **Git Push y Publicación en GitHub**:
    - `preparar_version.py` obtiene el token desde Windows Credential Manager (`CredReadW`) para hacer `git push` y publicar Releases en GitHub sin bloqueos ni ventanas emergentes.
 6. **Ciclo de Vida de Ventana de Auditoría**:

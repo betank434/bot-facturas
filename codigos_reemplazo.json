@@ -3,12 +3,21 @@
     "codigo_origen": "014113701808",
     "codigo_destino": "014113910088",
     "descripcion": "PISTACHO WONDERFUL",
-    "activo": true
+    "activo": true,
+    "accion": "intercambiar"
   },
   {
     "codigo_origen": "034000491681",
     "codigo_destino": "469000491681",
     "descripcion": "REESE'S WHITE 4 SNACK SIZE 62G",
-    "activo": false
+    "activo": false,
+    "accion": "intercambiar"
+  },
+  {
+    "codigo_origen": "02206705",
+    "codigo_destino": "BLOQUEADO",
+    "descripcion": "CHICLE HUBBA MAX STRAMBERRY 5 UND",
+    "activo": true,
+    "accion": "bloquear"
   }
 ]

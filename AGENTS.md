@@ -51,10 +51,13 @@ Cualquier agente que trabaje en este repositorio en cualquier PC debe seguir est
   3. Si `base_dir` está protegido (solo lectura), copia los archivos base a `%LOCALAPPDATA%\FacturadorSaint\` y opera allí con **100% permisos garantizados para cualquier usuario**.
 - `_save_user_config()` y `_save_replacement_rules()` atrapan `PermissionError` y redirigen automáticamente a `%LOCALAPPDATA%\FacturadorSaint\`.
 
-### B. Fusión Inteligente de Configuraciones (Smart Merge)
+### B. Fusión Inteligente de Configuraciones (Smart Merge) e Intercambio / Bloqueo de Códigos
 - **Nunca sobrescribir los ajustes del cliente en una actualización**:
   - `_load_saved_config()`: Preserva todas las opciones ya guardadas por el usuario (ej: si desactivó OCR, se mantiene desactivado). Si en una nueva versión se introduce una nueva clave, se agrega con su valor por defecto sin alterar nada de lo que el cliente ya haya configurado.
   - `_load_replacement_rules()`: Conserva intactos todos los códigos y sus estados (`activo: True/False`). Solo agrega un nuevo código por defecto si su `codigo_origen` no existe en la lista del cliente.
+- **Intercambio (`🔄`) y Bloqueo (`🚫`) de Códigos (`codigos_reemplazo.json`)**:
+  - En la pestaña `🔄 Intercambio / 🚫 Bloqueo de Códigos` se gestionan tanto códigos de reemplazo (`accion: "intercambiar"`) como códigos bloqueados que no se deben facturar (`accion: "bloquear"`, `codigo_destino: "BLOQUEADO"`), incluyendo por defecto el código `02206705` (`CHICLE HUBBA MAX STRAMBERRY 5 UND`).
+  - Al seleccionar/cargar cualquier factura JSON o tras ejecutar el Extractor PDF, el sistema detecta si existen códigos bloqueados activos, los resalta en rojo al principio de la tabla (`🚫 BLOQUEADO (No se factura)`), los excluye automáticamente de la cola de facturación y muestra una ventana de alerta preventiva **antes** de usar el facturador.
 
 ### C. Conexión SSL y Sistema de Actualizaciones (Finales vs Beta)
 - `updater.py` utiliza `_get_ssl_context()` con `ctx.check_hostname = False` y `ctx.verify_mode = ssl.CERT_NONE`.

@@ -512,6 +512,98 @@ def test_grupo_abreu_ocis_extraction():
         print(f"-> Pruebas de Formato Grupo Abreu / OCIS ({procesados} documentos) completadas al 100%.\n")
 
 
+def test_codigo_bloqueado_02206705():
+    print("--- 12. Probando Bloqueo de Código 02206705 y Alerta en Facturas JSON antes de Facturar ---")
+    import facturador_saint
+    import tkinter as tk
+
+    # 12.1 Verificar funciones auxiliares is_blocked_rule y match_barcode
+    assert facturador_saint.is_blocked_rule({"codigo_origen": "02206705", "codigo_destino": "BLOQUEADO", "accion": "bloquear"})
+    assert facturador_saint.is_blocked_rule({"codigo_origen": "02206705", "codigo_destino": "NO_FACTURAR"})
+    assert not facturador_saint.is_blocked_rule({"codigo_origen": "014113701808", "codigo_destino": "014113910682", "accion": "intercambiar"})
+    assert facturador_saint.match_barcode("02206705", "0000002206705"), "Debe coincidir versión normalizada y original"
+    assert facturador_saint.match_barcode("02206705", "02206705")
+    print(" [OK] Funciones is_blocked_rule y match_barcode validadas.")
+
+    root = tk.Tk()
+    root.withdraw()
+    app = facturador_saint.FacturadorApp(root)
+
+    # 12.2 Verificar que 02206705 está cargado y activo como regla de bloqueo por defecto
+    regla_02206705 = next((r for r in app.replacement_rules if r.get("codigo_origen") == "02206705"), None)
+    assert regla_02206705 is not None, "El código 02206705 debe existir en codigos_reemplazo.json por defecto"
+    assert facturador_saint.is_blocked_rule(regla_02206705), "La regla de 02206705 debe ser de tipo bloqueo"
+    assert regla_02206705.get("activo", True) is True, "La regla de 02206705 debe estar activa por defecto"
+    print(f" [OK] Código 02206705 ('{regla_02206705.get('descripcion')}') bloqueado por defecto.")
+
+    # 12.3 Probar detección y aviso al cargar una factura JSON que contiene 02206705
+    alert_calls = []
+    app._show_blocked_alert_dialog = lambda fid, blocked: alert_calls.append((fid, blocked))
+
+    test_json_path = Path("facturas_json/test_bloqueo_02206705_temp.json")
+    dummy_invoice = {
+        "factura": "FTC-TEST-BLOQUEO",
+        "tasa_cambio": 850.0,
+        "productos": [
+            {
+                "codigo_barra": "02206705",
+                "codigo_barra_original": "0000002206705",
+                "descripcion": "CHICLE HUBBA MAX STRAMBERRY 5 UND",
+                "cantidad": 34.0,
+                "costo_unitario_usd": 1.15,
+                "subtotal_usd": 39.10
+            },
+            {
+                "codigo_barra": "022000159335",
+                "descripcion": "CHICLETS EXTRA PEPPERMINT 15 PAQ",
+                "cantidad": 20.0,
+                "costo_unitario_usd": 0.99,
+                "subtotal_usd": 19.80
+            }
+        ]
+    }
+    try:
+        test_json_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(test_json_path, "w", encoding="utf-8") as fp:
+            json.dump(dummy_invoice, fp)
+
+        app._load_json(test_json_path, notify_blocked=True)
+
+        # Verificar que se disparó el aviso ANTES de usar el facturador
+        assert len(alert_calls) == 1, f"Debió dispararse 1 alerta al cargar el JSON, se dispararon {len(alert_calls)}"
+        alerted_fid, blocked_detected = alert_calls[0]
+        assert alerted_fid == "FTC-TEST-BLOQUEO"
+        assert len(blocked_detected) == 1, "Debió detectarse 1 producto bloqueado en el JSON"
+        assert blocked_detected[0]["codigo_barra"] == "02206705"
+        print(" [OK] Alerta preventiva disparada automáticamente al cargar factura JSON con el código 02206705.")
+
+        # Verificar que 02206705 fue excluido de app.items_list (productos a facturar)
+        assert len(app.items_list) == 1, f"Solo debe quedar 1 producto facturable, quedaron {len(app.items_list)}"
+        assert app.items_list[0]["codigo_barra"] == "022000159335"
+        assert len(app.blocked_items_list) == 1
+        assert app.tree.exists("blocked_0"), "Debe mostrarse la fila 'blocked_0' en rojo en la tabla de productos"
+        assert app.tree.exists("item_0"), "Debe mostrarse la fila 'item_0' para el producto facturable"
+        print(" [OK] Producto 02206705 excluido de la cola de facturación y resaltado como BLOQUEADO en la tabla.")
+    finally:
+        if test_json_path.exists():
+            test_json_path.unlink()
+
+    # 12.4 Verificar filtro de seguridad en el motor FacturadorSaintEngine._run_loop
+    engine = facturador_saint.FacturadorSaintEngine()
+    engine.config.update({"test_mode": True, "countdown_seconds": 0})
+    typed_strings = []
+    facturador_saint.win32_type_string = lambda text, **kw: typed_strings.append(str(text))
+    facturador_saint.win32_press_vk = lambda vk, **kw: None
+
+    engine._run_loop(dummy_invoice["productos"])
+    assert not any("02206705" in s for s in typed_strings), "El motor NUNCA debe tipear el código bloqueado 02206705"
+    assert any("022000159335" in s for s in typed_strings), "El motor sí debe tipear el producto permitido"
+    print(" [OK] Doble seguro en FacturadorSaintEngine verificado: jamás tipea códigos bloqueados en Saint.")
+
+    root.destroy()
+    print("-> Pruebas de Bloqueo de Códigos (02206705) completadas al 100%.\n")
+
+
 if __name__ == "__main__":
     test_json_files()
     test_engine_config_and_dryrun()
@@ -524,8 +616,5 @@ if __name__ == "__main__":
     test_norkut_odc_extraction()
     test_updater_beta_detection()
     test_grupo_abreu_ocis_extraction()
+    test_codigo_bloqueado_02206705()
     print("=== TODAS LAS PRUEBAS COMPLETADAS EXITOSAMENTE ===")
-
-
-
-

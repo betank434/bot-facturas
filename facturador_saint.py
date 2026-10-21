@@ -1028,6 +1028,43 @@ def extract_prices_from_grid_capture(img, batch_items: list, start_global_idx: i
     return res.get("price_diffs", [])
 
 
+def is_blocked_rule(rule: dict) -> bool:
+    """Determina si una regla en codigos_reemplazo.json corresponde a un código bloqueado (no facturar)."""
+    if not isinstance(rule, dict):
+        return False
+    accion = str(rule.get("accion", "")).strip().lower()
+    if accion in ("bloquear", "bloqueado", "block", "omitir", "excluir"):
+        return True
+    if rule.get("bloqueado") is True:
+        return True
+    dst = str(rule.get("codigo_destino", "")).strip().upper()
+    if dst in ("BLOQUEADO", "NO FACTURAR", "NO_FACTURAR", "OMITIR", "EXCLUIR", "BLOQUEAR", ""):
+        return True
+    return False
+
+
+def match_barcode(code_a: str, code_b: str) -> bool:
+    """Compara dos códigos de barra con tolerancia a ceros iniciales y normalización de 8/12 dígitos."""
+    c1 = str(code_a or "").strip()
+    c2 = str(code_b or "").strip()
+    if not c1 or not c2:
+        return False
+    if c1 == c2:
+        return True
+    try:
+        n1 = extractor.normalizar_codigo_barra(c1)[0]
+        n2 = extractor.normalizar_codigo_barra(c2)[0]
+        if n1 and n2 and n1 == n2:
+            return True
+    except Exception:
+        pass
+    s1 = c1.lstrip("0")
+    s2 = c2.lstrip("0")
+    if s1 and s2 and s1.isdigit() and s2.isdigit() and len(s1) >= 6 and s1 == s2:
+        return True
+    return False
+
+
 class OCRBatchProcessor:
     """
     Procesador de OCR asíncrono en segundo plano para capturas de pantalla de Saint.
@@ -1155,7 +1192,7 @@ class OCRBatchProcessor:
                     pass
 
             for r in rules_to_use:
-                if isinstance(r, dict) and r.get("activo", True):
+                if isinstance(r, dict) and r.get("activo", True) and not is_blocked_rule(r):
                     s = str(r.get("codigo_origen", "")).strip().lstrip("0")
                     d = str(r.get("codigo_destino", "")).strip().lstrip("0")
                     if s and d:
@@ -1534,6 +1571,32 @@ class FacturadorSaintEngine:
     def _run_loop(self, items: list):
         try:
             self.price_differences = []
+            # Filtrar de seguridad cualquier código bloqueado para que nunca se escriba en Saint
+            cfg_rules = self.config.get("replacement_rules")
+            if cfg_rules is None:
+                cfg_rules = [{"codigo_origen": "02206705", "codigo_destino": "BLOQUEADO", "accion": "bloquear", "activo": True}]
+            active_blocked_rules = [
+                r for r in cfg_rules
+                if isinstance(r, dict) and r.get("activo", True) and is_blocked_rule(r)
+            ]
+            filtered_items = []
+            for it in items:
+                if it.get("codigo_bloqueado"):
+                    self.log(f"🚫 [BLOQUEADO] Omitiendo código bloqueado: {it.get('codigo_barra', '')} ({it.get('descripcion', '')[:28]})")
+                    continue
+                c_bar = str(it.get("codigo_barra", "")).strip()
+                c_orig = str(it.get("codigo_barra_original", "")).strip()
+                is_blk = any(
+                    match_barcode(c_bar, r.get("codigo_origen", "")) or
+                    (c_orig and match_barcode(c_orig, r.get("codigo_origen", "")))
+                    for r in active_blocked_rules
+                )
+                if is_blk:
+                    self.log(f"🚫 [BLOQUEADO] Omitiendo código bloqueado: {c_bar} ({it.get('descripcion', '')[:28]})")
+                    continue
+                filtered_items.append(it)
+            items = filtered_items
+
             max_items = self.config.get("max_items_per_invoice", 43)
             if max_items and len(items) > max_items:
                 self.log(f"⚠️ La lista contiene {len(items)} productos. Se procesarán los primeros {max_items} productos (límite de Saint).")
@@ -1952,7 +2015,9 @@ class FacturadorApp:
         
         self.engine = FacturadorSaintEngine()
         self.current_json_data = None
+        self.current_json_path = None
         self.items_list = []
+        self.blocked_items_list = []
         self.last_price_diffs = []
         self.last_audit_result = None
         self.invoice_parts = []
@@ -2104,13 +2169,22 @@ class FacturadorApp:
                 "codigo_origen": "014113701808",
                 "codigo_destino": "014113910088",
                 "descripcion": "PISTACHO WONDERFUL",
-                "activo": True
+                "activo": True,
+                "accion": "intercambiar"
             },
             {
                 "codigo_origen": "034000491681",
                 "codigo_destino": "469000491681",
                 "descripcion": "REESE'S WHITE 4 SNACK SIZE 62G",
-                "activo": False
+                "activo": False,
+                "accion": "intercambiar"
+            },
+            {
+                "codigo_origen": "02206705",
+                "codigo_destino": "BLOQUEADO",
+                "descripcion": "CHICLE HUBBA MAX STRAMBERRY 5 UND",
+                "activo": True,
+                "accion": "bloquear"
             }
         ]
         if self.rules_file.exists():
@@ -2118,14 +2192,19 @@ class FacturadorApp:
                 with open(self.rules_file, "r", encoding="utf-8") as fp:
                     data = json.load(fp)
                 if isinstance(data, list) and len(data) > 0:
-                    # Fusión inteligente de reglas de intercambio:
+                    # Fusión inteligente de reglas de intercambio y bloqueo:
                     # 1. Conservar intactas todas las reglas existentes del cliente con sus estados
+                    needs_save = False
+                    for r in data:
+                        if isinstance(r, dict) and "accion" not in r:
+                            r["accion"] = "bloquear" if is_blocked_rule(r) else "intercambiar"
+                            needs_save = True
+
                     existing_origins = {
                         str(r.get("codigo_origen", "")).strip(): r
                         for r in data if isinstance(r, dict) and r.get("codigo_origen")
                     }
-                    needs_save = False
-                    # 2. Si el bot añade una nueva regla por defecto en una actualización,
+                    # 2. Si el bot añade una nueva regla por defecto en una actualización (ej. 02206705),
                     # se añade sin tocar ninguna de las configuraciones previas del usuario
                     for def_r in default_rules:
                         src = str(def_r.get("codigo_origen", "")).strip()
@@ -2182,6 +2261,14 @@ class FacturadorApp:
         except Exception as ex:
             self._log(f"[ERROR] No se pudo guardar codigos_reemplazo.json: {ex}")
 
+        # Si hay una factura JSON cargada y el motor no está corriendo, re-evaluar reglas sobre la factura actual
+        if getattr(self, "current_json_path", None) and not self.engine.running:
+            try:
+                if self.current_json_path.exists():
+                    self._load_json(self.current_json_path, prompt_exchange=False)
+            except Exception:
+                pass
+
     def _save_user_config(self):
         try:
             cfg = {
@@ -2227,6 +2314,26 @@ class FacturadorApp:
         except Exception:
             pass
 
+    def _on_rule_type_changed(self):
+        """Actualiza el campo de Código Destino según si la regla es 'intercambiar' o 'bloquear'."""
+        if not hasattr(self, "ent_code_dst") or not hasattr(self, "var_rule_type"):
+            return
+        rtype = self.var_rule_type.get()
+        if rtype == "bloquear":
+            self.ent_code_dst.configure(state="normal")
+            self.ent_code_dst.delete(0, "end")
+            self.ent_code_dst.insert(0, "BLOQUEADO (No Facturar)")
+            self.ent_code_dst.configure(
+                state="disabled",
+                disabledbackground="#fef2f2",
+                disabledforeground="#b91c1c"
+            )
+        else:
+            self.ent_code_dst.configure(state="normal", bg="#f8fafc", fg="#0f172a")
+            cur_val = self.ent_code_dst.get().strip()
+            if cur_val.upper().startswith("BLOQUEADO"):
+                self.ent_code_dst.delete(0, "end")
+
     def _refresh_rules_table(self, keep_selection=True):
         if not hasattr(self, "tree_rules"):
             return
@@ -2237,16 +2344,54 @@ class FacturadorApp:
             dst = rule.get("codigo_destino", "")
             desc = rule.get("descripcion", "")
             is_active = rule.get("activo", True)
-            activo_txt = "☑ Activo" if is_active else "☐ Inactivo"
-            tag = "rule_active" if is_active else "rule_inactive"
+            is_blk = is_blocked_rule(rule)
+
+            if is_blk:
+                dst_txt = "🚫 BLOQUEADO (No Facturar)"
+                activo_txt = "🚫 Bloqueado (Activo)" if is_active else "☐ Inactivo (No bloquea)"
+                tag = "rule_blocked" if is_active else "rule_inactive"
+            else:
+                dst_txt = f"🔄 {dst}" if dst else ""
+                activo_txt = "☑ Activo" if is_active else "☐ Inactivo"
+                tag = "rule_active" if is_active else "rule_inactive"
+
             self.tree_rules.insert("", "end", iid=f"rule_{idx-1}",
-                                   values=(idx, src, dst, desc, activo_txt),
+                                   values=(idx, src, dst_txt, desc, activo_txt),
                                    tags=(tag,))
         if keep_selection and current_sel:
             for item_id in current_sel:
                 if self.tree_rules.exists(item_id):
                     self.tree_rules.selection_set(item_id)
                     self.tree_rules.focus(item_id)
+
+    def _populate_form_from_rule(self, rule: dict):
+        if not isinstance(rule, dict):
+            return
+        src = str(rule.get("codigo_origen", "")).strip()
+        dst = str(rule.get("codigo_destino", "")).strip()
+        desc = str(rule.get("descripcion", "")).strip()
+        is_active = bool(rule.get("activo", True))
+        is_blk = is_blocked_rule(rule)
+
+        if hasattr(self, "var_rule_type"):
+            self.var_rule_type.set("bloquear" if is_blk else "intercambiar")
+            self._on_rule_type_changed()
+
+        if hasattr(self, "ent_code_src"):
+            self.ent_code_src.delete(0, "end")
+            self.ent_code_src.insert(0, src)
+
+        if hasattr(self, "ent_code_dst") and not is_blk:
+            self.ent_code_dst.configure(state="normal")
+            self.ent_code_dst.delete(0, "end")
+            self.ent_code_dst.insert(0, dst)
+
+        if hasattr(self, "ent_code_desc"):
+            self.ent_code_desc.delete(0, "end")
+            self.ent_code_desc.insert(0, desc)
+
+        if hasattr(self, "var_rule_activo"):
+            self.var_rule_activo.set(is_active)
 
     def _on_select_rule_row(self, event=None):
         if not hasattr(self, "tree_rules"):
@@ -2255,22 +2400,12 @@ class FacturadorApp:
         if not sel:
             return
         vals = self.tree_rules.item(sel[0], "values")
-        if len(vals) >= 4:
-            self.ent_code_src.delete(0, "end")
-            self.ent_code_src.insert(0, vals[1])
-            self.ent_code_dst.delete(0, "end")
-            self.ent_code_dst.insert(0, vals[2])
-            self.ent_code_desc.delete(0, "end")
-            self.ent_code_desc.insert(0, vals[3])
-
+        if len(vals) >= 2:
             src = str(vals[1]).strip()
-            rule_active = True
             for r in self.replacement_rules:
                 if str(r.get("codigo_origen", "")).strip() == src:
-                    rule_active = r.get("activo", True)
-                    break
-            if hasattr(self, "var_rule_activo"):
-                self.var_rule_activo.set(rule_active)
+                    self._populate_form_from_rule(r)
+                    return
 
     def _on_chk_rule_activo_changed(self):
         """Se ejecuta inmediatamente cuando el usuario marca o desmarca el checkbox del formulario."""
@@ -2311,27 +2446,16 @@ class FacturadorApp:
         if not vals or len(vals) < 2:
             return
         src = str(vals[1]).strip()
-        found = False
+        found_rule = None
         new_state = None
         for rule in self.replacement_rules:
             if str(rule.get("codigo_origen", "")).strip() == src:
                 new_state = not rule.get("activo", True)
                 rule["activo"] = new_state
-                found = True
+                found_rule = rule
                 break
-        if found and new_state is not None:
-            if hasattr(self, "ent_code_src"):
-                self.ent_code_src.delete(0, "end")
-                self.ent_code_src.insert(0, src)
-            if hasattr(self, "ent_code_dst") and len(vals) >= 3:
-                self.ent_code_dst.delete(0, "end")
-                self.ent_code_dst.insert(0, vals[2])
-            if hasattr(self, "ent_code_desc") and len(vals) >= 4:
-                self.ent_code_desc.delete(0, "end")
-                self.ent_code_desc.insert(0, vals[3])
-            if hasattr(self, "var_rule_activo"):
-                self.var_rule_activo.set(new_state)
-
+        if found_rule is not None and new_state is not None:
+            self._populate_form_from_rule(found_rule)
             self._save_replacement_rules()
             self._refresh_rules_table(keep_selection=False)
             if self.tree_rules.exists(item_id):
@@ -2394,14 +2518,44 @@ class FacturadorApp:
                     return
         messagebox.showwarning("Atención", "Selecciona una regla en la tabla o carga un código para alternar su estado activo/inactivo.", parent=self.root)
 
-    def _on_save_rule(self):
+    def _on_block_code_direct(self):
+        """Acción directa en 1 clic para bloquear un código que no se desea facturar."""
+        if hasattr(self, "var_rule_type"):
+            self.var_rule_type.set("bloquear")
+            self._on_rule_type_changed()
+        if hasattr(self, "var_rule_activo"):
+            self.var_rule_activo.set(True)
+        self._on_save_rule(force_block=True)
+
+    def _on_save_rule(self, force_block: bool = False):
         src = self.ent_code_src.get().strip()
-        dst = self.ent_code_dst.get().strip()
         desc = self.ent_code_desc.get().strip()
         is_active = self.var_rule_activo.get() if hasattr(self, "var_rule_activo") else True
-        if not src or not dst:
-            messagebox.showwarning("Atención", "Debes ingresar tanto el Código de Factura como el Código de Saint.", parent=self.root)
+        rtype = "bloquear" if force_block else (self.var_rule_type.get() if hasattr(self, "var_rule_type") else "intercambiar")
+
+        if not src:
+            messagebox.showwarning("Atención", "Debes ingresar el Código en Factura (Origen).", parent=self.root)
             return
+
+        if rtype == "bloquear":
+            dst = "BLOQUEADO"
+            accion = "bloquear"
+            if not desc:
+                desc = "CÓDIGO BLOQUEADO (NO FACTURAR)"
+        else:
+            dst = self.ent_code_dst.get().strip()
+            if dst.upper().startswith("BLOQUEADO"):
+                dst = ""
+            if not dst:
+                messagebox.showwarning(
+                    "Atención",
+                    "Para intercambiar un código debes ingresar el Código en Saint (Destino).\n\n"
+                    "Si lo que deseas es BLOQUEAR este código para no facturarlo, selecciona '🚫 Bloquear código' o pulsa el botón '🚫 Bloquear Código'.",
+                    parent=self.root
+                )
+                return
+            accion = "intercambiar"
+
         found = False
         saved_idx = None
         for i, r in enumerate(self.replacement_rules):
@@ -2409,6 +2563,7 @@ class FacturadorApp:
                 r["codigo_destino"] = dst
                 r["descripcion"] = desc
                 r["activo"] = is_active
+                r["accion"] = accion
                 found = True
                 saved_idx = i
                 break
@@ -2417,12 +2572,19 @@ class FacturadorApp:
                 "codigo_origen": src,
                 "codigo_destino": dst,
                 "descripcion": desc,
-                "activo": is_active
+                "activo": is_active,
+                "accion": accion
             })
             saved_idx = len(self.replacement_rules) - 1
-            self._log(f"➕ [REGLA] Agregada regla de intercambio: {src} ➔ {dst} ({desc}) [{'Activa' if is_active else 'Inactiva'}].")
+            if accion == "bloquear":
+                self._log(f"🚫 [BLOQUEO] Agregado código bloqueado (no facturar): {src} ({desc}) [{'Activo' if is_active else 'Inactivo'}].")
+            else:
+                self._log(f"➕ [REGLA] Agregada regla de intercambio: {src} ➔ {dst} ({desc}) [{'Activa' if is_active else 'Inactiva'}].")
         else:
-            self._log(f"✏️ [REGLA] Actualizada regla de intercambio: {src} ➔ {dst} ({desc}) [{'Activa' if is_active else 'Inactiva'}].")
+            if accion == "bloquear":
+                self._log(f"🚫 [BLOQUEO] Actualizado código bloqueado (no facturar): {src} ({desc}) [{'Activo' if is_active else 'Inactivo'}].")
+            else:
+                self._log(f"✏️ [REGLA] Actualizada regla de intercambio: {src} ➔ {dst} ({desc}) [{'Activa' if is_active else 'Inactiva'}].")
 
         self._save_replacement_rules()
         self._refresh_rules_table(keep_selection=False)
@@ -2430,8 +2592,30 @@ class FacturadorApp:
         if hasattr(self, "tree_rules") and self.tree_rules.exists(item_id):
             self.tree_rules.selection_set(item_id)
             self.tree_rules.focus(item_id)
-        estado_txt = "☑ Activo" if is_active else "☐ Inactivo"
-        messagebox.showinfo("Regla Guardada", f"Regla guardada con éxito:\n\n• Factura: {src}\n• Saint: {dst}\n• Descripción: {desc or 'N/A'}\n• Estado: {estado_txt}", parent=self.root)
+            self._populate_form_from_rule(self.replacement_rules[saved_idx])
+
+        if accion == "bloquear":
+            estado_txt = "🚫 Bloqueado (Activo)" if is_active else "☐ Inactivo"
+            messagebox.showinfo(
+                "Código Bloqueado Guardado",
+                f"🚫 El código ha sido registrado en la lista de bloqueo:\n\n"
+                f"• Código Bloqueado: {src}\n"
+                f"• Acción: NO FACTURAR (Excluir y avisar al cargar JSON)\n"
+                f"• Descripción: {desc or 'N/A'}\n"
+                f"• Estado: {estado_txt}",
+                parent=self.root
+            )
+        else:
+            estado_txt = "☑ Activo" if is_active else "☐ Inactivo"
+            messagebox.showinfo(
+                "Regla Guardada",
+                f"Regla de intercambio guardada con éxito:\n\n"
+                f"• Factura: {src}\n"
+                f"• Saint: {dst}\n"
+                f"• Descripción: {desc or 'N/A'}\n"
+                f"• Estado: {estado_txt}",
+                parent=self.root
+            )
 
     def _on_delete_rule(self):
         src = self.ent_code_src.get().strip()
@@ -2450,13 +2634,17 @@ class FacturadorApp:
             self._save_replacement_rules()
             self._refresh_rules_table()
             self._on_clear_rule_form()
-            self._log(f"🗑️ [REGLA] Eliminada regla de intercambio para código {src}.")
+            self._log(f"🗑️ [REGLA] Eliminada regla para código {src}.")
             messagebox.showinfo("Regla Eliminada", f"Se eliminó la regla para {src}.", parent=self.root)
 
     def _on_clear_rule_form(self):
+        if hasattr(self, "var_rule_type"):
+            self.var_rule_type.set("intercambiar")
+            self._on_rule_type_changed()
         if hasattr(self, "ent_code_src"):
             self.ent_code_src.delete(0, "end")
         if hasattr(self, "ent_code_dst"):
+            self.ent_code_dst.configure(state="normal")
             self.ent_code_dst.delete(0, "end")
         if hasattr(self, "ent_code_desc"):
             self.ent_code_desc.delete(0, "end")
@@ -2599,7 +2787,7 @@ class FacturadorApp:
         self.tab_codigos = ttk.Frame(self.notebook)
 
         self.notebook.add(self.tab_facturacion, text="⚡ Facturación en Saint")
-        self.notebook.add(self.tab_codigos, text="🔄 Intercambio de Códigos")
+        self.notebook.add(self.tab_codigos, text="🔄 Intercambio / 🚫 Bloqueo de Códigos")
 
         # =============================================================
         # PESTAÑA 1: FACTURACIÓN EN SAINT
@@ -2779,7 +2967,7 @@ class FacturadorApp:
         self.var_check_special_code = tk.BooleanVar(value=self.saved_cfg.get("check_special_code", True))
         chk_special = tk.Checkbutton(
             row_o2, 
-            text="🔔 Aplicar reglas de intercambio de códigos al cargar factura (Pestaña 'Intercambio')", 
+            text="🔔 Aplicar reglas de intercambio y avisar códigos bloqueados al cargar factura", 
             variable=self.var_check_special_code,
             font=("Segoe UI", 9, "bold"),
             fg="#0f172a", bg="#ffffff", activebackground="#ffffff", activeforeground="#0f172a",
@@ -2898,12 +3086,13 @@ class FacturadorApp:
         self.tree.tag_configure("active", background="#fef08a", foreground="#713f12", font=("Segoe UI", 9, "bold"))
         self.tree.tag_configure("done", background="#dcfce7", foreground="#14532d", font=("Segoe UI", 9, "bold"))
         self.tree.tag_configure("replaced", background="#e0f2fe", foreground="#0369a1", font=("Segoe UI", 9, "bold"))
+        self.tree.tag_configure("blocked", background="#fee2e2", foreground="#991b1b", font=("Segoe UI", 9, "bold"))
         self.tree.tag_configure("diff_fixed", background="#fef3c7", foreground="#78350f", font=("Segoe UI", 9, "bold"))
         self.tree.tag_configure("diff_kept", background="#fee2e2", foreground="#991b1b", font=("Segoe UI", 9, "bold"))
         self.tree.tag_configure("diff_paused", background="#ffedd5", foreground="#9a3412", font=("Segoe UI", 9, "bold"))
 
         # =============================================================
-        # PESTAÑA 2: INTERCAMBIO DE CÓDIGOS DE BARRA
+        # PESTAÑA 2: INTERCAMBIO Y BLOQUEO DE CÓDIGOS DE BARRA
         # =============================================================
         self._build_tab_codigos()
 
@@ -2912,17 +3101,17 @@ class FacturadorApp:
         container_cod.pack(fill="both", expand=True)
 
         # 1. Cabecera informativa de la pestaña
-        info_card = tk.Frame(container_cod, bg="#ffffff", highlightbackground="#cbd5e1", highlightthickness=1, padx=12, pady=10)
+        info_card = tk.Frame(container_cod, bg="#ffffff", highlightbackground="#cbd5e1", highlightthickness=1, padx=12, pady=8)
         info_card.pack(fill="x", pady=(0, 8))
 
-        lbl_t2_title = tk.Label(info_card, text="🔄 Reglas de Intercambio de Códigos de Barra", 
+        lbl_t2_title = tk.Label(info_card, text="🔄 Reglas de Intercambio y 🚫 Bloqueo de Códigos de Barra", 
                                 font=("Segoe UI", 11, "bold"), fg="#0f172a", bg="#ffffff")
         lbl_t2_title.pack(anchor="w")
 
         lbl_t2_sub = tk.Label(
             info_card, 
-            text="Configura los códigos que deben ser sustituidos automáticamente por códigos compatibles de Saint al abrir una factura (ej. Pistachos Wonderful, presentaciones alternas, etc.).",
-            font=("Segoe UI", 9), fg="#64748b", bg="#ffffff", wraplength=780, justify="left"
+            text="Configura los códigos que deben ser intercambiados por otro código de Saint o BLOQUEADOS para que NO se facturen. Si una factura JSON contiene un código bloqueado, te avisará antes de usar el facturador.",
+            font=("Segoe UI", 9), fg="#64748b", bg="#ffffff", wraplength=820, justify="left"
         )
         lbl_t2_sub.pack(anchor="w", pady=(2, 0))
 
@@ -2930,7 +3119,7 @@ class FacturadorApp:
         table_card = tk.Frame(container_cod, bg="#ffffff", highlightbackground="#cbd5e1", highlightthickness=1, padx=8, pady=8)
         table_card.pack(fill="both", expand=True, pady=(0, 8))
 
-        lbl_tbl_title = tk.Label(table_card, text="📋 Catálogo de Reglas Registradas (Haz clic en 'Estado', doble clic o pulsa Espacio para activar/desactivar):",
+        lbl_tbl_title = tk.Label(table_card, text="📋 Catálogo de Códigos a Intercambiar o Bloquear (Haz clic en 'Estado', doble clic o pulsa Espacio para activar/desactivar):",
                                  font=("Segoe UI", 9, "bold"), fg="#334155", bg="#ffffff")
         lbl_tbl_title.pack(anchor="w", pady=(0, 6))
 
@@ -2938,19 +3127,19 @@ class FacturadorApp:
         tbl_inner.pack(fill="both", expand=True)
 
         cols_rules = ("num", "origen", "destino", "desc", "estado")
-        self.tree_rules = ttk.Treeview(tbl_inner, columns=cols_rules, show="headings", height=8, selectmode="browse")
+        self.tree_rules = ttk.Treeview(tbl_inner, columns=cols_rules, show="headings", height=7, selectmode="browse")
 
         self.tree_rules.heading("num", text="#")
         self.tree_rules.heading("origen", text="Código en Factura (Origen)")
-        self.tree_rules.heading("destino", text="Código en Saint (Destino)")
+        self.tree_rules.heading("destino", text="Acción / Código en Saint")
         self.tree_rules.heading("desc", text="Descripción / Producto")
         self.tree_rules.heading("estado", text="Estado (Clic para alternar)")
 
         self.tree_rules.column("num", width=40, minwidth=35, anchor="center")
-        self.tree_rules.column("origen", width=180, minwidth=140, anchor="center")
-        self.tree_rules.column("destino", width=180, minwidth=140, anchor="center")
+        self.tree_rules.column("origen", width=165, minwidth=130, anchor="center")
+        self.tree_rules.column("destino", width=200, minwidth=150, anchor="center")
         self.tree_rules.column("desc", width=260, minwidth=160, anchor="w")
-        self.tree_rules.column("estado", width=120, minwidth=100, anchor="center")
+        self.tree_rules.column("estado", width=140, minwidth=110, anchor="center")
 
         scrolly_r = ttk.Scrollbar(tbl_inner, orient="vertical", command=self.tree_rules.yview)
         self.tree_rules.configure(yscrollcommand=scrolly_r.set)
@@ -2962,11 +3151,13 @@ class FacturadorApp:
         self.tree_rules.bind("<Double-1>", self._on_tree_rules_double_click)
         self.tree_rules.bind("<space>", self._on_tree_rules_space)
         self.tree_rules.tag_configure("rule_active", font=("Segoe UI", 9), foreground="#0f172a")
+        self.tree_rules.tag_configure("rule_blocked", font=("Segoe UI", 9, "bold"), background="#fef2f2", foreground="#b91c1c")
         self.tree_rules.tag_configure("rule_inactive", font=("Segoe UI", 9), foreground="#94a3b8")
 
         # Menú contextual con clic derecho en la tabla
         self.menu_rules = tk.Menu(self.root, tearoff=0)
         self.menu_rules.add_command(label="⚡ Activar / Desactivar Estado", command=self._on_toggle_rule_button)
+        self.menu_rules.add_command(label="🚫 Bloquear este Código (No Facturar)", command=self._on_block_code_direct)
         self.menu_rules.add_separator()
         self.menu_rules.add_command(label="🗑️ Eliminar Regla", command=self._on_delete_rule)
 
@@ -2980,30 +3171,58 @@ class FacturadorApp:
 
         self.tree_rules.bind("<Button-3>", _on_tree_right_click)
 
-        # 3. Tarjeta de Formulario: Agregar o Editar Regla
+        # 3. Tarjeta de Formulario: Agregar, Intercambiar o Bloquear Código
         form_card = tk.Frame(container_cod, bg="#ffffff", highlightbackground="#cbd5e1", highlightthickness=1, padx=12, pady=10)
         form_card.pack(fill="x", pady=(0, 4))
 
-        lbl_f_title = tk.Label(form_card, text="➕ Agregar o Modificar Regla de Intercambio",
+        lbl_f_title = tk.Label(form_card, text="➕ Agregar o Modificar Regla (Intercambiar o Bloquear Código que NO quieres facturar)",
                                font=("Segoe UI", 10, "bold"), fg="#0f172a", bg="#ffffff")
-        lbl_f_title.pack(anchor="w", pady=(0, 8))
+        lbl_f_title.pack(anchor="w", pady=(0, 6))
 
         grid_f = tk.Frame(form_card, bg="#ffffff")
-        grid_f.pack(fill="x", pady=(0, 10))
+        grid_f.pack(fill="x", pady=(0, 8))
+
+        # Fila 0: Selector de Tipo de Regla (Intercambiar vs Bloquear)
+        tk.Label(grid_f, text="Tipo de Función:", font=("Segoe UI", 9, "bold"), fg="#334155", bg="#ffffff").grid(row=0, column=0, sticky="w", padx=(0, 8), pady=(0, 4))
+        type_box = tk.Frame(grid_f, bg="#ffffff")
+        type_box.grid(row=0, column=1, columnspan=3, sticky="w", pady=(0, 4))
+
+        self.var_rule_type = tk.StringVar(value="intercambiar")
+        rb_intercambiar = tk.Radiobutton(
+            type_box,
+            text="🔄 Intercambiar por otro código en Saint",
+            value="intercambiar",
+            variable=self.var_rule_type,
+            command=self._on_rule_type_changed,
+            font=("Segoe UI", 9, "bold"),
+            fg="#0284c7", bg="#ffffff", activebackground="#ffffff", selectcolor="#ffffff", cursor="hand2"
+        )
+        rb_intercambiar.pack(side="left", padx=(0, 18))
+
+        rb_bloquear = tk.Radiobutton(
+            type_box,
+            text="🚫 Bloquear código (No facturar y avisar si está en JSON)",
+            value="bloquear",
+            variable=self.var_rule_type,
+            command=self._on_rule_type_changed,
+            font=("Segoe UI", 9, "bold"),
+            fg="#dc2626", bg="#ffffff", activebackground="#ffffff", selectcolor="#ffffff", cursor="hand2"
+        )
+        rb_bloquear.pack(side="left")
 
         # Fila 1: Origen y Destino
-        tk.Label(grid_f, text="Código en Factura (Origen):", font=("Segoe UI", 9, "bold"), fg="#334155", bg="#ffffff").grid(row=0, column=0, sticky="w", padx=(0, 8), pady=4)
+        tk.Label(grid_f, text="Código en Factura (Origen):", font=("Segoe UI", 9, "bold"), fg="#334155", bg="#ffffff").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=4)
         self.ent_code_src = tk.Entry(grid_f, font=("Segoe UI", 10), bg="#f8fafc", fg="#0f172a", relief="solid", borderwidth=1, width=22)
-        self.ent_code_src.grid(row=0, column=1, sticky="w", padx=(0, 20), pady=4)
+        self.ent_code_src.grid(row=1, column=1, sticky="w", padx=(0, 20), pady=4)
 
-        tk.Label(grid_f, text="Código en Saint (Destino):", font=("Segoe UI", 9, "bold"), fg="#334155", bg="#ffffff").grid(row=0, column=2, sticky="w", padx=(0, 8), pady=4)
+        tk.Label(grid_f, text="Código en Saint (Destino):", font=("Segoe UI", 9, "bold"), fg="#334155", bg="#ffffff").grid(row=1, column=2, sticky="w", padx=(0, 8), pady=4)
         self.ent_code_dst = tk.Entry(grid_f, font=("Segoe UI", 10), bg="#f8fafc", fg="#0f172a", relief="solid", borderwidth=1, width=22)
-        self.ent_code_dst.grid(row=0, column=3, sticky="w", padx=(0, 10), pady=4)
+        self.ent_code_dst.grid(row=1, column=3, sticky="w", padx=(0, 10), pady=4)
 
         # Fila 2: Descripción
-        tk.Label(grid_f, text="Descripción del Producto:", font=("Segoe UI", 9, "bold"), fg="#334155", bg="#ffffff").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=4)
+        tk.Label(grid_f, text="Descripción del Producto:", font=("Segoe UI", 9, "bold"), fg="#334155", bg="#ffffff").grid(row=2, column=0, sticky="w", padx=(0, 8), pady=4)
         self.ent_code_desc = tk.Entry(grid_f, font=("Segoe UI", 10), bg="#f8fafc", fg="#0f172a", relief="solid", borderwidth=1, width=58)
-        self.ent_code_desc.grid(row=1, column=1, columnspan=3, sticky="w", pady=4)
+        self.ent_code_desc.grid(row=2, column=1, columnspan=3, sticky="w", pady=4)
 
         # Fila 3: Checkbox Estado Activo
         self.var_rule_activo = tk.BooleanVar(value=True)
@@ -3020,7 +3239,7 @@ class FacturadorApp:
             cursor="hand2",
             command=self._on_chk_rule_activo_changed
         )
-        self.chk_rule_activo.grid(row=2, column=1, columnspan=3, sticky="w", pady=(2, 4))
+        self.chk_rule_activo.grid(row=3, column=1, columnspan=3, sticky="w", pady=(2, 2))
 
         # Fila de Botones de Acción para Reglas
         btn_box_r = tk.Frame(form_card, bg="#ffffff")
@@ -3028,7 +3247,7 @@ class FacturadorApp:
 
         self.btn_save_rule = tk.Button(
             btn_box_r,
-            text="💾 Guardar / Agregar Regla",
+            text="💾 Guardar Regla",
             font=("Segoe UI", 9, "bold"),
             fg="#ffffff", bg="#10b981", activebackground="#047857", activeforeground="#ffffff",
             padx=12, pady=6, relief="flat", cursor="hand2",
@@ -3036,6 +3255,17 @@ class FacturadorApp:
         )
         self.btn_save_rule.pack(side="left", padx=(0, 8))
         self._aplicar_hover(self.btn_save_rule, bg_normal="#10b981", bg_hover="#059669")
+
+        self.btn_block_code = tk.Button(
+            btn_box_r,
+            text="🚫 Bloquear Código (No Facturar)",
+            font=("Segoe UI", 9, "bold"),
+            fg="#ffffff", bg="#b91c1c", activebackground="#7f1d1d", activeforeground="#ffffff",
+            padx=12, pady=6, relief="flat", cursor="hand2",
+            command=self._on_block_code_direct
+        )
+        self.btn_block_code.pack(side="left", padx=(0, 8))
+        self._aplicar_hover(self.btn_block_code, bg_normal="#b91c1c", bg_hover="#991b1b")
 
         self.btn_toggle_rule = tk.Button(
             btn_box_r,
@@ -3050,7 +3280,7 @@ class FacturadorApp:
 
         self.btn_del_rule = tk.Button(
             btn_box_r,
-            text="🗑️ Eliminar Regla Seleccionada",
+            text="🗑️ Eliminar Regla",
             font=("Segoe UI", 9, "bold"),
             fg="#ffffff", bg="#ef4444", activebackground="#b91c1c", activeforeground="#ffffff",
             padx=12, pady=6, relief="flat", cursor="hand2",
@@ -3093,7 +3323,9 @@ class FacturadorApp:
             self.cbo_facturas["values"] = []
             self.cbo_facturas.set("")
             self.items_list = []
+            self.blocked_items_list = []
             self.current_json_data = None
+            self.current_json_path = None
             if hasattr(self, "tree"):
                 self.tree.delete(*self.tree.get_children())
             if hasattr(self, "lbl_total_items"):
@@ -3199,19 +3431,54 @@ class FacturadorApp:
                     added = new_files - prev_files
                     active_factura = self.cbo_facturas.get()
 
+                    # Escanear todas las facturas JSON extraídas en busca de códigos bloqueados en otras facturas no activas
+                    active_blocked = [
+                        r for r in getattr(self, "replacement_rules", [])
+                        if isinstance(r, dict) and r.get("activo", True) and is_blocked_rule(r)
+                    ]
+                    other_blocked_invoices = []
+                    if active_blocked:
+                        for j_file in sorted(json_dir.glob("*.json")):
+                            if j_file.name == active_factura:
+                                continue
+                            try:
+                                with open(j_file, "r", encoding="utf-8") as jfp:
+                                    jdata = json.load(jfp)
+                                found_codes = []
+                                for jp in jdata.get("productos", []):
+                                    cb = str(jp.get("codigo_barra", "")).strip()
+                                    cbo = str(jp.get("codigo_barra_original", "")).strip()
+                                    for br in active_blocked:
+                                        if match_barcode(cb, br.get("codigo_origen", "")) or (cbo and match_barcode(cbo, br.get("codigo_origen", ""))):
+                                            found_codes.append(f"{cb} ({jp.get('descripcion', '')[:25]})")
+                                            break
+                                if found_codes:
+                                    other_blocked_invoices.append(f"• {j_file.name}: {', '.join(found_codes)}")
+                            except Exception:
+                                pass
+
                     self._log("✅ [EXTRACTOR] Extracción completada con éxito.")
+                    extra_blk_warn = ""
+                    if other_blocked_invoices:
+                        extra_blk_warn = (
+                            "\n\n🚫 ¡ATENCIÓN! También se detectaron códigos bloqueados en otra(s) factura(s) extraída(s):\n"
+                            + "\n".join(other_blocked_invoices)
+                        )
+
                     if added:
                         msg = (
                             f"✅ ¡Extracción completada con éxito!\n\n"
                             f"Se cargaron {len(added)} nueva(s) factura(s) a la lista:\n"
                             + "\n".join(f"• {f}" for f in sorted(added))
                             + f"\n\nFactura seleccionada actualmente:\n• {active_factura}"
+                            + extra_blk_warn
                         )
                     else:
                         msg = (
                             "✅ ¡Proceso completado con éxito!\n\n"
                             "Los archivos JSON en facturas_json/ fueron actualizados correctamente.\n\n"
                             f"Factura activa:\n• {active_factura}"
+                            + extra_blk_warn
                         )
                     messagebox.showinfo("Extractor Completado", msg, parent=self.root)
 
@@ -3226,7 +3493,45 @@ class FacturadorApp:
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _load_json(self, path: Path):
+    def _show_blocked_alert_dialog(self, factura_id: str, blocked_items: list):
+        """Muestra una alerta clara al usuario cuando se detectan códigos bloqueados en un archivo JSON."""
+        if not blocked_items:
+            return
+        try:
+            forzar_ventana_al_frente(self.root)
+            if HAVE_SOUND:
+                winsound.MessageBeep(0x00000030)
+        except Exception:
+            pass
+
+        lines = []
+        for b in blocked_items:
+            c_bar = b.get("codigo_barra", "")
+            desc = b.get("descripcion", "Producto bloqueado")
+            cant = b.get("cantidad", 1)
+            p_usd = float(b.get("costo_unitario_usd", 0.0))
+            p_bs = float(b.get("costo_unitario_bs", 0.0))
+            precio_str = f"$ {p_usd:,.2f}" if p_usd > 0 else (f"Bs. {p_bs:,.2f}" if p_bs > 0 else "N/A")
+            lines.append(f"• Código: {c_bar}\n  Producto: {desc}\n  Cantidad: {cant}  |  Precio: {precio_str}")
+
+        msg = (
+            f"🚫 ¡ALERTA: CÓDIGO BLOQUEADO DETECTADO EN FACTURA JSON!\n\n"
+            f"Antes de usar el Facturador, te avisamos que la factura \"{factura_id}\" "
+            f"contiene {len(blocked_items)} producto(s) de tu lista de códigos bloqueados (No Facturar):\n\n"
+            + "\n\n".join(lines) +
+            f"\n\n🔒 ACCIÓN AUTOMÁTICA APLICADA:\n"
+            f"Este código aparece marcado en ROJO al inicio de la tabla y ha sido EXCLUIDO "
+            f"automáticamente para que el Facturador NO lo escriba ni lo facture en Saint."
+        )
+        if str(self.root.state()) == "withdrawn":
+            return
+        if not self.root.winfo_ismapped():
+            self.root.after(350, lambda m=msg: messagebox.showwarning("🚫 Código Bloqueado en Factura JSON", m, parent=self.root))
+            return
+        messagebox.showwarning("🚫 Código Bloqueado en Factura JSON", msg, parent=self.root)
+
+    def _load_json(self, path: Path, prompt_exchange: bool = True, notify_blocked: bool = True):
+        path = Path(path)
         try:
             with open(path, "r", encoding="utf-8") as fp:
                 data = json.load(fp)
@@ -3234,6 +3539,7 @@ class FacturadorApp:
             messagebox.showerror("Error", f"No se pudo abrir {path.name}:\n{e}")
             return
 
+        self.current_json_path = path
         self.current_json_data = data
         factura_id = data.get("factura", path.stem)
         proveedor = data.get("proveedor", "N/A")
@@ -3243,49 +3549,78 @@ class FacturadorApp:
         tasa = data.get("tasa_cambio", 0.0)
         productos = [dict(p) for p in data.get("productos", [])]
 
-        # Comprobar reglas dinámicas de intercambio de códigos (pestaña 'Intercambio')
+        rules_to_check = getattr(self, "replacement_rules", [])
+        if not rules_to_check:
+            rules_to_check = self._load_replacement_rules()
+
+        # 1. Detectar y separar productos con CÓDIGOS BLOQUEADOS (No Facturar)
+        active_blocked_rules = [
+            r for r in rules_to_check
+            if isinstance(r, dict) and r.get("activo", True) and is_blocked_rule(r)
+        ]
+        productos_bloqueados = []
+        productos_facturables = []
+
+        for p in productos:
+            c_bar = str(p.get("codigo_barra", "")).strip()
+            c_orig = str(p.get("codigo_barra_original", "")).strip()
+            matched_block = None
+            for br in active_blocked_rules:
+                b_src = str(br.get("codigo_origen", "")).strip()
+                if match_barcode(c_bar, b_src) or (c_orig and match_barcode(c_orig, b_src)):
+                    matched_block = br
+                    break
+            if matched_block is not None:
+                p["codigo_bloqueado"] = True
+                if not p.get("descripcion") and matched_block.get("descripcion"):
+                    p["descripcion"] = matched_block.get("descripcion")
+                productos_bloqueados.append(p)
+            else:
+                productos_facturables.append(p)
+
+        self.blocked_items_list = productos_bloqueados
+
+        # 2. Comprobar reglas dinámicas de INTERCAMBIO de códigos sobre los productos facturables
         if getattr(self, "var_check_special_code", None) and self.var_check_special_code.get():
-            rules_to_check = getattr(self, "replacement_rules", [])
-            if not rules_to_check:
-                rules_to_check = [{
-                    "codigo_origen": "014113701808",
-                    "codigo_destino": "014113910088",
-                    "descripcion": "PISTACHO WONDERFUL",
-                    "activo": True
-                }]
             for rule in rules_to_check:
-                if not rule.get("activo", True):
+                if not isinstance(rule, dict) or not rule.get("activo", True) or is_blocked_rule(rule):
                     continue
                 special_src = str(rule.get("codigo_origen", "")).strip()
                 special_dst = str(rule.get("codigo_destino", "")).strip()
                 desc_rule = rule.get("descripcion", "") or "Producto"
                 if not special_src or not special_dst:
                     continue
-                matching = [p for p in productos if str(p.get("codigo_barra", "")).strip() == special_src]
+                matching = [
+                    p for p in productos_facturables
+                    if match_barcode(p.get("codigo_barra", ""), special_src) or
+                       match_barcode(p.get("codigo_barra_original", ""), special_src)
+                ]
                 if matching:
-                    count_m = len(matching)
-                    desc_prod = matching[0].get("descripcion", desc_rule)
-                    resp = messagebox.askyesno(
-                        "Detección de Código a Intercambiar",
-                        f"⚠️ Se detectó el producto con código:\n\n"
-                        f"• Código Factura: {special_src}\n"
-                        f"• Descripción: {desc_prod}\n"
-                        f"• Ocurrencias: {count_m}\n\n"
-                        f"¿Deseas cambiarlo por el código de Saint:\n"
-                        f"👉 {special_dst} para esta factura?",
-                        parent=self.root
-                    )
+                    if prompt_exchange:
+                        count_m = len(matching)
+                        desc_prod = matching[0].get("descripcion", desc_rule)
+                        resp = messagebox.askyesno(
+                            "Detección de Código a Intercambiar",
+                            f"⚠️ Se detectó el producto con código:\n\n"
+                            f"• Código Factura: {special_src}\n"
+                            f"• Descripción: {desc_prod}\n"
+                            f"• Ocurrencias: {count_m}\n\n"
+                            f"¿Deseas cambiarlo por el código de Saint:\n"
+                            f"👉 {special_dst} para esta factura?",
+                            parent=self.root
+                        )
+                    else:
+                        resp = True
                     if resp:
-                        for p in productos:
-                            if str(p.get("codigo_barra", "")).strip() == special_src:
-                                p["codigo_barra"] = special_dst
-                                p["codigo_reemplazado"] = True
+                        for p in matching:
+                            p["codigo_barra"] = special_dst
+                            p["codigo_reemplazado"] = True
                         self._log(f"[AVISO] Código {special_src} reemplazado por {special_dst} ({desc_rule}).")
                     else:
                         self._log(f"[AVISO] Se mantuvo el código original {special_src}.")
 
         # Si es una factura en Bs sin precios en USD (ej. Guuao / Orden de compra en Bs)
-        is_only_bs = (data.get("moneda") == "VES" or all(float(p.get("costo_unitario_usd", 0.0)) == 0.0 for p in productos))
+        is_only_bs = (data.get("moneda") == "VES" or (productos and all(float(p.get("costo_unitario_usd", 0.0)) == 0.0 for p in productos)))
         if is_only_bs:
             self.var_check_price.set(False)
             self._log("ℹ️ Factura en Bolívares (sin precios USD). Prioridad: Nombre, Código de Barra y Cantidad (Alerta de precios desactivada automáticamente).")
@@ -3299,18 +3634,38 @@ class FacturadorApp:
         else:
             self.lbl_tasa.configure(text="Tasa: N/A (Solo Bs.)")
 
-        # Dividir en partes de máximo 43 productos (límite por factura en Saint)
-        self.invoice_parts = self._split_into_parts(productos, tasa)
+        # Dividir los productos facturables en partes de máximo 43 productos (límite por factura en Saint)
+        self.invoice_parts = self._split_into_parts(productos_facturables, tasa)
+        if not self.invoice_parts and productos_bloqueados:
+            self.invoice_parts = [{
+                "part_num": 1,
+                "total_parts": 1,
+                "start_idx": 0,
+                "end_idx": 0,
+                "items": [],
+                "count": 0,
+                "total_usd": 0.0,
+                "total_bs": 0.0,
+                "label": "Parte 1 de 1: 0 prods facturables (Todos bloqueados)"
+            }]
+
         if len(self.invoice_parts) > 1:
             self.frame_partes.pack(fill="x", pady=(6, 0))
             self.cbo_partes["values"] = [p["label"] for p in self.invoice_parts]
             self.cbo_partes.current(0)
-            self._log(f"✂️ Factura con {len(productos)} productos dividida automáticamente en {len(self.invoice_parts)} partes de hasta {MAX_ITEMS_PER_INVOICE} productos.")
+            self._log(f"✂️ Factura con {len(productos_facturables)} productos facturables dividida automáticamente en {len(self.invoice_parts)} partes de hasta {MAX_ITEMS_PER_INVOICE} productos.")
         else:
             self.frame_partes.pack_forget()
 
         self._show_part(0)
-        self._log(f"Factura {factura_id} cargada con {len(productos)} productos.")
+
+        if productos_bloqueados:
+            cods_str = ", ".join(f"{b.get('codigo_barra', '')} ({b.get('descripcion', '')[:25]})" for b in productos_bloqueados)
+            self._log(f"🚫 [CÓDIGO BLOQUEADO] Factura {factura_id}: {len(productos_bloqueados)} producto(s) bloqueado(s) detectado(s) [{cods_str}]. Excluidos automáticamente de la facturación.")
+            if notify_blocked:
+                self._show_blocked_alert_dialog(factura_id, productos_bloqueados)
+
+        self._log(f"Factura {factura_id} cargada: {len(productos_facturables)} producto(s) a facturar" + (f" | 🚫 {len(productos_bloqueados)} bloqueado(s)." if productos_bloqueados else "."))
 
     def _split_into_parts(self, productos: list, tasa: float) -> list:
         if not productos:
@@ -3357,12 +3712,15 @@ class FacturadorApp:
         self.current_part_idx = part_idx
         part = self.invoice_parts[part_idx]
         self.items_list = part["items"]
-        total_global = len(self.current_json_data.get("productos", [])) if self.current_json_data else len(self.items_list)
-        
+        n_blocked = len(getattr(self, "blocked_items_list", []))
+        total_billable = sum(p["count"] for p in self.invoice_parts)
+        blk_suffix = f" (🚫 {n_blocked} bloq.)" if n_blocked > 0 else ""
+
         # Actualizar indicadores y subtotales
         if part["total_parts"] > 1:
             self.lbl_items_badge.configure(
-                text=f"Ítems: {part['count']} de {total_global} (Parte {part['part_num']}/{part['total_parts']})"
+                text=f"Ítems: {part['count']} de {total_billable} (Parte {part['part_num']}/{part['total_parts']}){blk_suffix}",
+                fg="#b91c1c" if n_blocked > 0 else "#1e40af"
             )
             if part["total_usd"] > 0:
                 self.lbl_total_usd.configure(text=f"Parte USD: $ {part['total_usd']:,.2f}")
@@ -3371,10 +3729,17 @@ class FacturadorApp:
             self.lbl_total_bs.configure(text=f"Parte Bs.: Bs. {part['total_bs']:,.2f}")
             self.btn_start.configure(text=f"▶ FACTURAR PARTE {part['part_num']} ({part['count']} ítems) [F8]")
         else:
-            self.lbl_items_badge.configure(text=f"Total Ítems: {part['count']}")
+            self.lbl_items_badge.configure(
+                text=f"Total Ítems: {part['count']}{blk_suffix}",
+                fg="#b91c1c" if n_blocked > 0 else "#1e40af"
+            )
             totales = self.current_json_data.get("totales", {}) if self.current_json_data else {}
-            t_usd = totales.get("total_usd", part["total_usd"])
-            t_bs = totales.get("total_bs", part["total_bs"])
+            if n_blocked > 0:
+                t_usd = part["total_usd"]
+                t_bs = part["total_bs"]
+            else:
+                t_usd = totales.get("total_usd", part["total_usd"])
+                t_bs = totales.get("total_bs", part["total_bs"])
             if t_usd > 0:
                 self.lbl_total_usd.configure(text=f"Total USD: $ {t_usd:,.2f}")
             else:
@@ -3382,8 +3747,26 @@ class FacturadorApp:
             self.lbl_total_bs.configure(text=f"Total Bs.: Bs. {t_bs:,.2f}")
             self.btn_start.configure(text="▶ FACTURAR ESTA FACTURA (F8)")
 
-        # Llenar la tabla con los ítems de esta parte
+        # Llenar la tabla: primero mostrar en ROJO cualquier producto bloqueado para visibilidad inmediata
         self.tree.delete(*self.tree.get_children())
+        for b_idx, b_prod in enumerate(getattr(self, "blocked_items_list", [])):
+            b_ref = b_prod.get("codigo_barra", "")
+            b_desc = b_prod.get("descripcion", "")
+            b_cant = b_prod.get("cantidad", 0)
+            bp_usd = float(b_prod.get("costo_unitario_usd", 0.0))
+            bp_bs = float(b_prod.get("costo_unitario_bs", 0.0))
+            if bp_usd > 0.0:
+                b_precio = f"$ {bp_usd:.2f}"
+            elif bp_bs > 0.0:
+                b_precio = f"Bs. {bp_bs:,.2f}"
+            else:
+                b_precio = "--"
+            self.tree.insert(
+                "", "end", iid=f"blocked_{b_idx}",
+                values=("🚫", f"🚫 {b_ref}", b_desc, b_cant, b_precio, "🚫 BLOQUEADO (No se factura)"),
+                tags=("blocked",)
+            )
+
         for idx, prod in enumerate(self.items_list, 1):
             ref = prod.get("codigo_barra", "")
             desc = prod.get("descripcion", "")
@@ -3409,7 +3792,7 @@ class FacturadorApp:
                              values=(idx, ref, desc, cant, precio, estado_txt),
                              tags=(tag,))
 
-        self.prog_bar["maximum"] = part["count"]
+        self.prog_bar["maximum"] = max(1, part["count"])
         self.prog_bar["value"] = 0
         self.lbl_prog_txt.configure(text=f"0 de {part['count']} productos")
         st_txt = f"● LISTO PARA PARTE {part['part_num']} ({part['count']} prods)" if part["total_parts"] > 1 else "● LISTO PARA FACTURAR"
@@ -3455,6 +3838,7 @@ class FacturadorApp:
             for item in part["items"]:
                 cp = dict(item)
                 cp.pop("codigo_reemplazado", None)
+                cp.pop("codigo_bloqueado", None)
                 p_prods.append(cp)
             p_data["productos"] = p_prods
 
@@ -3730,10 +4114,21 @@ class FacturadorApp:
 
     def start_facturacion(self):
         if not self.items_list:
-            messagebox.showwarning("Atención", "No hay productos cargados en esta factura.")
+            if getattr(self, "blocked_items_list", []):
+                messagebox.showwarning(
+                    "Códigos Bloqueados",
+                    "🚫 Todos los productos en esta factura están bloqueados para NO facturar.",
+                    parent=self.root
+                )
+            else:
+                messagebox.showwarning("Atención", "No hay productos cargados en esta factura.")
             return
         if self.engine.running:
             return
+
+        if getattr(self, "blocked_items_list", []):
+            cods = ", ".join(str(b.get("codigo_barra", "")) for b in self.blocked_items_list)
+            self._log(f"🚫 [PROTECCIÓN BLOQUEO] Se omiten {len(self.blocked_items_list)} producto(s) bloqueado(s): {cods}.")
 
         self._sync_config()
         self.btn_start.configure(state="disabled")
