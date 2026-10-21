@@ -17,7 +17,7 @@
     "codigo_origen": "02206705",
     "codigo_destino": "BLOQUEADO",
     "descripcion": "CHICLE HUBBA MAX STRAMBERRY 5 UND",
-    "activo": true,
+    "activo": false,
     "accion": "bloquear"
   }
 ]
