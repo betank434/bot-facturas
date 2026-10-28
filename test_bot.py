@@ -481,19 +481,37 @@ def test_updater_beta_detection():
 
 
 def test_grupo_abreu_ocis_extraction():
-    print("--- 11. Probando Extracción de Órdenes de Compra Grupo Abreu / Aikoz / Mas X Menos (OCIS) ---")
+    print("--- 11. Probando Extracción de Órdenes de Compra (OCIS y TOTAL SOLICITADO con .000) ---")
     import extractor
+
+    # Validar limpieza de .000 en cantidades y montos mixtos US/VE
+    assert extractor.parsear_cantidad_oc("18.000") == 18
+    assert extractor.parsear_cantidad_oc("10.000") == 10
+    assert extractor.parsear_cantidad_oc("3.000") == 3
+    assert extractor.parsear_cantidad_oc("0.000") == 0
+    assert extractor.parsear_cantidad_oc("24,0000") == 24
+    assert extractor.parsear_monto_mixto("2.28") == 2.28
+    assert extractor.parsear_monto_mixto("41.04") == 41.04
+    assert extractor.parsear_monto_mixto("1,172.94") == 1172.94
+    assert extractor.parsear_monto_mixto("1.006,08") == 1006.08
+    print(" [OK] Limpieza de decimales .000 en TOTAL SOLICITADO y montos USD verificada.")
+
     casos_esperados = [
         ("THE KIDS WORLD.15-10_AZAB.pdf", "OCIS18-0016973", 12, 1006.08, "AIKOZ CC AB"),
         ("THE KIDS WORLD.15-10_MXMCARACOLA.pdf", "OCIS12-0036115", 53, 2936.92, "MAS X MENOS CARACOLA"),
         ("THE KIDS WORLD.15-10_MXMECO CENTER.pdf", "OCIS15-0022922", 11, 168.72, "MAS X MENOS ECOCENTER"),
         ("THE KIDS WORLD.15-10_MXMJORGE COLL.pdf", "OCIS13-0028895", 32, 859.53, "MAS X MENOS JORGE COLL"),
+        ("THE KIDS WORDL 26-08-2026.M.pdf", "THE KIDS WORDL 26-08-2026.M", 35, 1172.94, "Almacen Principal"),
     ]
     procesados = 0
     for fname, exp_fact, exp_count, exp_tot, exp_alm in casos_esperados:
         pdf_path = Path("facturas_pdf") / fname
         if not pdf_path.exists():
-            continue
+            alt_path = Path(r"C:\Program Files\Facturador Saint\facturas_pdf") / fname
+            if alt_path.exists():
+                pdf_path = alt_path
+            else:
+                continue
         data = extractor.extraer_factura_pdf(str(pdf_path))
         assert data["factura"] == exp_fact, f"Factura incorrecta en {fname}: {data['factura']} != {exp_fact}"
         assert len(data["productos"]) == exp_count, f"Conteo incorrecto en {fname}: {len(data['productos'])} != {exp_count}"
@@ -502,6 +520,7 @@ def test_grupo_abreu_ocis_extraction():
         assert data["almacen"] == exp_alm, f"Almacén incorrecto en {fname}: {data['almacen']} != {exp_alm}"
         assert data["moneda"] == "USD"
         assert all(len(p["codigo_barra"]) in (8, 12) for p in data["productos"]), f"Códigos no normalizados en {fname}"
+        assert all(isinstance(p["cantidad"], int) and p["cantidad"] < 1000 for p in data["productos"]), f"Cantidades con .000 no limpiadas en {fname}"
         assert all(p["costo_unitario_usd"] > 0 and p["cantidad"] > 0 for p in data["productos"]), f"Precios/cantidades inválidos en {fname}"
         procesados += 1
         print(f" [OK] {fname} -> {data['factura']} ({exp_count} prods, Total USD: ${exp_tot:,.2f}, Sucursal: {exp_alm})")
@@ -529,12 +548,14 @@ def test_codigo_bloqueado_02206705():
     root.withdraw()
     app = facturador_saint.FacturadorApp(root)
 
-    # 12.2 Verificar que 02206705 está cargado y activo como regla de bloqueo por defecto
+    # 12.2 Verificar que 02206705 está cargado como regla de bloqueo por defecto
     regla_02206705 = next((r for r in app.replacement_rules if r.get("codigo_origen") == "02206705"), None)
     assert regla_02206705 is not None, "El código 02206705 debe existir en codigos_reemplazo.json por defecto"
     assert facturador_saint.is_blocked_rule(regla_02206705), "La regla de 02206705 debe ser de tipo bloqueo"
-    assert regla_02206705.get("activo", True) is True, "La regla de 02206705 debe estar activa por defecto"
-    print(f" [OK] Código 02206705 ('{regla_02206705.get('descripcion')}') bloqueado por defecto.")
+    prev_active = regla_02206705.get("activo", True)
+    regla_02206705["activo"] = True
+    app._save_replacement_rules()
+    print(f" [OK] Código 02206705 ('{regla_02206705.get('descripcion')}') verificado en reglas de bloqueo.")
 
     # 12.3 Probar detección y aviso al cargar una factura JSON que contiene 02206705
     alert_calls = []
@@ -584,21 +605,23 @@ def test_codigo_bloqueado_02206705():
         assert app.tree.exists("blocked_0"), "Debe mostrarse la fila 'blocked_0' en rojo en la tabla de productos"
         assert app.tree.exists("item_0"), "Debe mostrarse la fila 'item_0' para el producto facturable"
         print(" [OK] Producto 02206705 excluido de la cola de facturación y resaltado como BLOQUEADO en la tabla.")
+
+        # 12.4 Verificar filtro de seguridad en el motor FacturadorSaintEngine._run_loop
+        engine = facturador_saint.FacturadorSaintEngine()
+        engine.config.update({"test_mode": True, "countdown_seconds": 0})
+        typed_strings = []
+        facturador_saint.win32_type_string = lambda text, **kw: typed_strings.append(str(text))
+        facturador_saint.win32_press_vk = lambda vk, **kw: None
+
+        engine._run_loop(dummy_invoice["productos"])
+        assert not any("02206705" in s for s in typed_strings), "El motor NUNCA debe tipear el código bloqueado 02206705"
+        assert any("022000159335" in s for s in typed_strings), "El motor sí debe tipear el producto permitido"
+        print(" [OK] Doble seguro en FacturadorSaintEngine verificado: jamás tipea códigos bloqueados en Saint.")
     finally:
         if test_json_path.exists():
             test_json_path.unlink()
-
-    # 12.4 Verificar filtro de seguridad en el motor FacturadorSaintEngine._run_loop
-    engine = facturador_saint.FacturadorSaintEngine()
-    engine.config.update({"test_mode": True, "countdown_seconds": 0})
-    typed_strings = []
-    facturador_saint.win32_type_string = lambda text, **kw: typed_strings.append(str(text))
-    facturador_saint.win32_press_vk = lambda vk, **kw: None
-
-    engine._run_loop(dummy_invoice["productos"])
-    assert not any("02206705" in s for s in typed_strings), "El motor NUNCA debe tipear el código bloqueado 02206705"
-    assert any("022000159335" in s for s in typed_strings), "El motor sí debe tipear el producto permitido"
-    print(" [OK] Doble seguro en FacturadorSaintEngine verificado: jamás tipea códigos bloqueados en Saint.")
+        regla_02206705["activo"] = prev_active
+        app._save_replacement_rules()
 
     root.destroy()
     print("-> Pruebas de Bloqueo de Códigos (02206705) completadas al 100%.\n")

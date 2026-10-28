@@ -44,6 +44,64 @@ def parsear_cantidad(valor_str):
     return num
 
 
+def parsear_monto_mixto(valor_str):
+    """
+    Convierte montos monetarios soportando tanto formato venezolano/europeo (1.234,56 / 2,28)
+    como formato estadounidense/internacional (1,234.56 / 2.28).
+    """
+    if valor_str is None:
+        return 0.0
+    limpio = re.sub(r'[^\d,\.-]', '', str(valor_str)).strip()
+    if not limpio:
+        return 0.0
+    if ',' in limpio and '.' in limpio:
+        if limpio.rfind(',') < limpio.rfind('.'):
+            limpio = limpio.replace(',', '')
+        else:
+            limpio = limpio.replace('.', '').replace(',', '.')
+    elif ',' in limpio:
+        if re.match(r'^-?\d+,\d{1,5}$', limpio):
+            limpio = limpio.replace(',', '.')
+        else:
+            limpio = limpio.replace(',', '')
+    elif '.' in limpio:
+        if limpio.count('.') > 1:
+            limpio = limpio.replace('.', '')
+    try:
+        return round(float(limpio), 2)
+    except ValueError:
+        return 0.0
+
+
+def parsear_cantidad_oc(valor_str):
+    """
+    Convierte cantidades de órdenes de compra eliminando sufijos decimales .000 / ,000 (o .00 / ,00).
+    Ejemplo: '18.000' -> 18, '10.000' -> 10, '0.000' -> 0, '24,0000' -> 24.
+    """
+    if valor_str is None:
+        return 0
+    limpio = re.sub(r'[^\d,\.-]', '', str(valor_str)).strip()
+    if not limpio:
+        return 0
+    # Eliminar sufijo decimal de ceros (.000, ,000, .0000, ,0000, .00, ,00)
+    limpio_sin_ceros = re.sub(r'[\.,]0{2,5}$', '', limpio)
+    limpio_entero = re.sub(r'[\.,]', '', limpio_sin_ceros)
+    if limpio_sin_ceros != limpio and limpio_entero.lstrip('-').isdigit():
+        return int(limpio_entero)
+    if ',' in limpio and '.' not in limpio:
+        limpio = limpio.replace(',', '.')
+    elif ',' in limpio and '.' in limpio:
+        if limpio.rfind(',') < limpio.rfind('.'):
+            limpio = limpio.replace(',', '')
+        else:
+            limpio = limpio.replace('.', '').replace(',', '.')
+    try:
+        val = float(limpio)
+        return int(val) if val.is_integer() else round(val, 3)
+    except ValueError:
+        return 0
+
+
 def parsear_tasa_cambio(tasa_str):
     """
     Convierte la tasa de cambio a float (soporta formato con punto o con coma decimal).
@@ -568,24 +626,36 @@ def extraer_orden_compra_grupo_abreu(doc, ruta_pdf):
     header_lines = [" ".join(x[4] for x in sorted(rw, key=lambda x: x[0])) for _, rw in rows_p0]
     header_text = "\n".join(header_lines)
 
-    # Número de Orden de Compra (ej. OCIS18-0016973)
-    nro_m = re.search(r'Nro\s+([A-Za-z0-9_-]+)', header_text, re.IGNORECASE)
+    # Número de Orden de Compra (ej. OCIS18-0016973) o nombre del archivo si Nro está en blanco
+    nro_m = re.search(r'\bNro[ \t]*:?[ \t]+(?!ORDEN\b|Estatus\b|P[áa]gina\b)([A-Za-z0-9_-]+)', header_text, re.IGNORECASE)
     if not nro_m:
-        nro_m = re.search(r'Nro\s+([A-Za-z0-9_-]+)', full_text, re.IGNORECASE)
+        nro_m = re.search(r'\bNro[ \t]*:?[ \t]+(?!ORDEN\b|Estatus\b|P[áa]gina\b)([A-Za-z0-9_-]+)', full_text, re.IGNORECASE)
+    if not nro_m:
+        nro_m = re.search(r'ORDEN\s+COMP:\s*\n*([A-Za-z0-9_-]+)', full_text, re.IGNORECASE)
     numero_factura = nro_m.group(1).strip() if nro_m else Path(ruta_pdf).stem
 
     # Cliente, RIF Cliente y Sucursal / Almacén
-    rif_cli_m = re.search(r'RIF:\s*([JVG]-?\d+)', header_text, re.IGNORECASE)
+    rif_cli_m = re.search(r'RIF:[ \t]*([JVG]-?\d+)', header_text, re.IGNORECASE)
+    if not rif_cli_m:
+        rif_cli_m = re.search(r'RAZON\s+SOCIAL\s*-\s*RIF:\s*\n*[^\n]*?([JVG]-\d+)', full_text, re.IGNORECASE)
     rif_cliente = rif_cli_m.group(1).strip() if rif_cli_m else ""
 
-    suc_m = re.search(r'Sucursal:\s*(.+?)(?:\s+Fecha\s+Emisi|$)', header_text, re.IGNORECASE)
-    almacen = suc_m.group(1).strip() if suc_m else "Almacen Principal"
+    suc_m = re.search(r'Sucursal:[ \t]*([^\n:]+?)(?:[ \t]+Fecha[ \t]+Emisi|$)', header_text, re.IGNORECASE | re.MULTILINE)
+    almacen_cand = suc_m.group(1).strip() if suc_m else ""
+    if not almacen_cand or re.match(r'^Fecha\b', almacen_cand, re.IGNORECASE):
+        suc_alt = re.search(r'^SUCURSAL:[ \t]*\n+([^\n:]+)$', full_text, re.IGNORECASE | re.MULTILINE)
+        almacen_cand = suc_alt.group(1).strip() if suc_alt else ""
+    almacen = almacen_cand if almacen_cand else "Almacen Principal"
 
-    rs_m = re.search(r'Razon\s+Social:\s*(.+?)(?:\s+Fecha\s+Cierre|$)', header_text, re.IGNORECASE)
-    cliente = rs_m.group(1).strip() if rs_m else "INVERSIONES BARCELONA ORIENTE"
+    rs_m = re.search(r'Razon[ \t]+Social:[ \t]*([^\n:]+?)(?:[ \t]+Fecha[ \t]+Cierre|$)', header_text, re.IGNORECASE | re.MULTILINE)
+    cliente_cand = rs_m.group(1).strip() if rs_m else ""
+    if not cliente_cand or re.match(r'^Fecha\b', cliente_cand, re.IGNORECASE):
+        rs_alt = re.search(r'RAZON\s+SOCIAL\s*-\s*RIF:\s*\n+([^\n:-]+)', full_text, re.IGNORECASE)
+        cliente_cand = rs_alt.group(1).strip() if rs_alt else ""
+    cliente = cliente_cand if cliente_cand else "INVERSIONES BARCELONA ORIENTE"
 
     # Fechas
-    f_emi_m = re.search(r'Fecha\s+Emisi[^:]*:\s*(\d{1,2}/\d{1,2}/\d{4})', header_text, re.IGNORECASE)
+    f_emi_m = re.search(r'Fecha[ \t]+Emisi[^:\n]*:[ \t]*(\d{1,2}/\d{1,2}/\d{4})', header_text, re.IGNORECASE)
     fecha_corte = f_emi_m.group(1).strip() if f_emi_m else None
     if not fecha_corte:
         f_any = re.search(r'(\d{1,2}/\d{1,2}/\d{4})', header_text)
@@ -594,15 +664,15 @@ def extraer_orden_compra_grupo_abreu(doc, ruta_pdf):
     # Proveedor y RIF Proveedor
     proveedor = "THE KIDS WORLD 2018, C.A"
     rif_proveedor = "J-412297244"
-    prov_m = re.search(r'Proveedor:\s*([^\n/]+?)(?:\s*/\s*([JVG]-?\d+))?\s*$', header_text, re.IGNORECASE | re.MULTILINE)
-    if prov_m:
+    prov_m = re.search(r'Proveedor:[ \t]*([^\n/]+?)(?:[ \t]*/[ \t]*([JVG]-?\d+))?[ \t]*$', header_text, re.IGNORECASE | re.MULTILINE)
+    if prov_m and prov_m.group(1).strip() and not prov_m.group(1).strip().endswith(":"):
         proveedor = prov_m.group(1).strip()
         if prov_m.group(2):
             rif_proveedor = prov_m.group(2).strip()
 
     # Moneda ($ - Dolar vs Bs)
-    moneda_m = re.search(r'Moneda:\s*([^\n]+)', header_text, re.IGNORECASE)
-    moneda_raw = moneda_m.group(1).upper() if moneda_m else "$ - DOLAR"
+    moneda_m = re.search(r'Moneda:[ \t]*([^\n]+)', header_text, re.IGNORECASE)
+    moneda_raw = moneda_m.group(1).strip().upper() if (moneda_m and moneda_m.group(1).strip()) else "$ - DOLAR"
     is_bs = ("BS" in moneda_raw or "BOLIVAR" in moneda_raw or "VES" in moneda_raw) and ("$" not in moneda_raw and "DOLAR" not in moneda_raw and "USD" not in moneda_raw)
     moneda = "VES" if is_bs else "USD"
 
@@ -611,27 +681,42 @@ def extraer_orden_compra_grupo_abreu(doc, ruta_pdf):
     for page in doc:
         for b in page.get_text("blocks"):
             lines = [l.strip() for l in b[4].splitlines() if l.strip()]
-            if len(lines) < 6:
+            if len(lines) < 5:
                 continue
 
             cb_raw = None
             mid_lines = []
-            if len(lines) >= 7 and re.match(r'^\d{7,14}$', lines[0]):
-                cb_raw = lines[0]
-                mid_lines = lines[1:-5]
-            else:
-                m_inline = re.match(r'^(\d{7,14})\s+(.+)$', lines[0])
-                if m_inline and len(lines) >= 6:
-                    cb_raw = m_inline.group(1)
-                    mid_lines = [m_inline.group(2)] + lines[1:-5]
+            tail_nums = []
 
-            if not cb_raw:
-                continue
-
-            # Verificar que las últimas 5 líneas sean numéricas:
+            # Caso 1: Formato de 8 columnas con 5 valores numéricos al final:
             # [CANT EMP, CANT UNID, TOTAL SOLICITADO, COST UNIT SIN IVA, SUB TOTAL SIN IVA]
-            tail_nums = lines[-5:]
-            if not all(re.match(r'^[\d\.,]+$', x) for x in tail_nums):
+            if len(lines) >= 6 and all(re.match(r'^[\d\.,]+$', x) for x in lines[-5:]):
+                if len(lines) >= 7 and re.match(r'^\d{7,14}$', lines[0]):
+                    cb_raw = lines[0]
+                    mid_lines = lines[1:-5]
+                    tail_nums = lines[-5:]
+                else:
+                    m_inline = re.match(r'^(\d{7,14})\s+(.+)$', lines[0])
+                    if m_inline:
+                        cb_raw = m_inline.group(1)
+                        mid_lines = [m_inline.group(2)] + lines[1:-5]
+                        tail_nums = lines[-5:]
+
+            # Caso 2: Formato compacto con 3 valores numéricos al final:
+            # [CANT UNID, COSTO UNIT, TOT ITEM]
+            elif len(lines) >= 5 and all(re.match(r'^[\d\.,]+$', x) for x in lines[-3:]):
+                if re.match(r'^\d{7,14}$', lines[0]):
+                    cb_raw = lines[0]
+                    mid_lines = lines[1:-3]
+                    tail_nums = lines[-3:]
+                else:
+                    m_inline = re.match(r'^(\d{7,14})\s+(.+)$', lines[0])
+                    if m_inline and len(lines) >= 4:
+                        cb_raw = m_inline.group(1)
+                        mid_lines = [m_inline.group(2)] + lines[1:-3]
+                        tail_nums = lines[-3:]
+
+            if not cb_raw or not tail_nums:
                 continue
 
             raw_desc = " ".join(mid_lines).replace("\ufffd", "'")
@@ -644,13 +729,18 @@ def extraer_orden_compra_grupo_abreu(doc, ruta_pdf):
             )
             desc = " ".join(raw_desc.split())
 
-            cant_emp = parsear_monto_ve(tail_nums[0])
-            cant_unid = parsear_monto_ve(tail_nums[1])
-            tot_sol = parsear_monto_ve(tail_nums[2])
-            pu_val = parsear_monto_ve(tail_nums[3])
-            sub_val = parsear_monto_ve(tail_nums[4])
+            if len(tail_nums) == 5:
+                cant_emp = parsear_cantidad_oc(tail_nums[0])
+                cant_unid = parsear_cantidad_oc(tail_nums[1])
+                tot_sol = parsear_cantidad_oc(tail_nums[2])
+                pu_val = parsear_monto_mixto(tail_nums[3])
+                sub_val = parsear_monto_mixto(tail_nums[4])
+                cant_val = tot_sol if tot_sol > 0 else (cant_unid if cant_unid > 0 else cant_emp)
+            else:
+                cant_val = parsear_cantidad_oc(tail_nums[0])
+                pu_val = parsear_monto_mixto(tail_nums[1])
+                sub_val = parsear_monto_mixto(tail_nums[2])
 
-            cant_val = tot_sol if tot_sol > 0 else (cant_unid if cant_unid > 0 else cant_emp)
             cant = int(cant_val) if float(cant_val).is_integer() else cant_val
 
             norm_code, code_len, code_type = normalizar_codigo_barra(cb_raw)
@@ -678,11 +768,17 @@ def extraer_orden_compra_grupo_abreu(doc, ruta_pdf):
     nro_items_doc = int(item_m.group(1)) if item_m else len(productos)
 
     sub_m = re.search(r'SubTotal\s*\n+([\d\.,]+)', full_text, re.IGNORECASE)
-    sub_doc = parsear_monto_ve(sub_m.group(1)) if sub_m else 0.0
+    sub_doc = parsear_monto_mixto(sub_m.group(1)) if sub_m else 0.0
+    if sub_doc == 0.0:
+        item_tot_m = re.search(r'ITEM:\s*\d+\s*\n+([\d\.,]+)', full_text, re.IGNORECASE)
+        if item_tot_m:
+            sub_doc = parsear_monto_mixto(item_tot_m.group(1))
 
     tot_m = re.search(r'(?<!Sub)Total\s*\n+([\d\.,]+)', full_text, re.IGNORECASE)
-    tot_doc = parsear_monto_ve(tot_m.group(1)) if tot_m else 0.0
+    tot_doc = parsear_monto_mixto(tot_m.group(1)) if tot_m else 0.0
 
+    if tot_doc == 0.0 and sub_doc > 0.0:
+        tot_doc = sub_doc
     if tot_doc == 0.0 and productos:
         key_tot = "total_bs" if is_bs else "total_usd"
         tot_doc = round(sum(p[key_tot] for p in productos), 2)
@@ -731,8 +827,14 @@ def extraer_factura_pdf(ruta_pdf):
     # Formatos existentes: Órdenes de Compra (ODC) y Facturas de Consignación (FTC) de Sigo
     factura_match = re.search(r'((?:FTC|ODC)-[\w-]+)', p0_texto)
     if not factura_match:
-        # Detectar Formato Grupo Abreu / Aikoz / Mas X Menos (Nro OCIS... / UND EMP / COST UNIT SIN IVA)
-        if re.search(r'Nro\s+OC[A-Z0-9_-]+', p0_texto, re.IGNORECASE) or ("UND EMP" in p0_texto.upper() and "COST UNIT" in p0_texto.upper()):
+        # Detectar Formato Grupo Abreu / Aikoz / Mas X Menos / Orden de Compra SSRS (Nro OCIS... / TOTAL SOLICITADO / UND EMP / COST UNIT SIN IVA)
+        p0_upper = p0_texto.upper()
+        if (
+            re.search(r'Nro[ \t]+OC[A-Z0-9_-]+', p0_texto, re.IGNORECASE)
+            or re.search(r'ORDEN\s+COMP:\s*\n*OC[A-Z0-9_-]+', p0_texto, re.IGNORECASE)
+            or ("UND EMP" in p0_upper and "COST UNIT" in p0_upper)
+            or ("TOTAL" in p0_upper and "SOLICITADO" in p0_upper and ("DESCRIPCI" in p0_upper or "CODIGO" in p0_upper or "CÓDIGO" in p0_upper))
+        ):
             return extraer_orden_compra_grupo_abreu(doc, ruta_pdf)
 
         # Detectar Formato Norkut Cloud / Sigo Boca del Río (#ODC... o core.norkut-cloud)
