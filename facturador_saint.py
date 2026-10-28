@@ -550,8 +550,39 @@ def find_saint_grid_region(img: Image.Image) -> dict:
     grid_bottom = max(grid_top + int(14 * row_height), int(h * 0.88))
     grid_bottom = min(grid_bottom, int(h - 32))
     grid_h = grid_bottom - grid_top
-    precio_x1 = grid_x1 + int(grid_w * 0.79)
-    precio_x2 = grid_x1 + int(grid_w * 0.915)
+
+    # Detectar dinámicamente las líneas verticales divisorias de columnas en Saint Enterprise
+    # (color lavanda/azul claro: RGB ~ (181, 167, 245)) para adaptarse a 1366x768, 1920x1080, 2K/4K
+    sample_ys = [int(h * r) for r in (0.35, 0.42, 0.50, 0.58, 0.65, 0.72, 0.80, 0.85) if grid_top < int(h * r) < grid_bottom]
+    v_cols = []
+    if len(sample_ys) >= 4:
+        for x in range(max(0, grid_x1), min(w, grid_x2 + 15)):
+            hits = 0
+            for y in sample_ys:
+                r, g, b = rgb.getpixel((x, y))
+                if 140 <= r <= 215 and 130 <= g <= 205 and b >= 205 and b > r + 18:
+                    hits += 1
+            if hits >= max(4, len(sample_ys) - 3):
+                if not v_cols or x - v_cols[-1] > 20:
+                    v_cols.append(x)
+
+    if len(v_cols) >= 5:
+        # Las últimas 5 líneas verticales corresponden a los bordes de:
+        # [Fin Descripción / Inicio Cantidad, Fin Cantidad / Inicio Unidad,
+        #  Fin Unidad / Inicio Precio, Fin Precio / Inicio Total, Fin Total]
+        ref_x2 = v_cols[0] if v_cols[0] < grid_x1 + int(grid_w * 0.35) else grid_x1 + int(grid_w * 0.25)
+        qty_x1 = v_cols[-5]
+        qty_x2 = v_cols[-4]
+        precio_x1 = v_cols[-3]
+        precio_x2 = v_cols[-2]
+        v_cols_detected = True
+    else:
+        ref_x2 = grid_x1 + int(grid_w * 0.35)
+        qty_x1 = grid_x1 + int(grid_w * 0.58)
+        qty_x2 = grid_x1 + int(grid_w * 0.78)
+        precio_x1 = grid_x1 + int(grid_w * 0.79)
+        precio_x2 = grid_x1 + int(grid_w * 0.915)
+        v_cols_detected = False
 
     return {
         "grid_top": grid_top,
@@ -559,8 +590,12 @@ def find_saint_grid_region(img: Image.Image) -> dict:
         "row_height": row_height,
         "grid_w": grid_w,
         "grid_h": grid_h,
+        "ref_x2": ref_x2,
+        "qty_x1": qty_x1,
+        "qty_x2": qty_x2,
         "precio_x1": precio_x1,
         "precio_x2": precio_x2,
+        "v_cols_detected": v_cols_detected,
         "grid_x1": grid_x1,
         "grid_x2": grid_x2
     }
@@ -691,21 +726,31 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
                 c["words"].append(w)
                 c["y_center"] = sum(x["y_center"] for x in c["words"]) / len(c["words"])
 
-        # Delimitadores proporcionales al ancho de la ventana
-        ref_x_max = int(img_w * 0.35)
-        desc_x_min = int(img_w * 0.10)
-        desc_x_max = int(img_w * 0.65)
-        qty_x_min = int(img_w * 0.58)
-        qty_x_max = int(img_w * 0.78)
-        price_col_x1 = max(0, int(img_w * 0.79))
-        price_col_x2 = min(img_w, int(img_w * 0.915))
+        # Delimitadores dinámicos de columnas (relativos a crop_main) con fallback proporcional
+        if info.get("v_cols_detected"):
+            ref_x_max = max(int(img_w * 0.12), int(info.get("ref_x2", grid_x1 + int(img_w * 0.25)) - grid_x1 + 12))
+            qty_x_min = max(0, int(info["qty_x1"] - grid_x1 - 4))
+            qty_x_max = min(img_w, int(info["qty_x2"] - grid_x1 + 4))
+            desc_x_min = max(int(img_w * 0.06), int(info.get("ref_x2", grid_x1 + int(img_w * 0.08)) - grid_x1 - 4))
+            desc_x_max = qty_x_min
+            price_col_x1 = max(0, int(info["precio_x1"] - grid_x1))
+            price_col_x2 = min(img_w, int(info["precio_x2"] - grid_x1))
+        else:
+            ref_x_max = int(img_w * 0.35)
+            desc_x_min = int(img_w * 0.10)
+            desc_x_max = int(img_w * 0.65)
+            qty_x_min = int(img_w * 0.58)
+            qty_x_max = int(img_w * 0.78)
+            price_col_x1 = max(0, int(img_w * 0.79))
+            price_col_x2 = min(img_w, int(img_w * 0.915))
 
         header_keywords = {"REFERENCIA", "CODIGO", "DESCRIPCION", "CANTIDAD", "PRECIO", "TOTAL", "RENGLON", "ITEM", "UNIDAD", "SUBTOTAL"}
         footer_keywords = {
             "SUBTOTAL", "SUB-TOTAL", "SUB TOTAL", "BASE IMPONIBLE", "IMPONIBLE", "EXENTO",
             "IVA (16%)", "IVA (8%)", "IMPUESTO", "TOTAL USD", "TOTAL BS", "TOTAL GENERAL",
             "ITEMS:", "ITEM:", "RENGLONES:", "TOTAL ITEMS", "DESCUENTO", "CARGO", "RETENCION",
-            "MONEDA", "TASA", "SALDO", "PAGAR", "CONDICION", "VENDEDOR", "CAJA", "USUARIO"
+            "MONEDA", "TASA", "SALDO", "PAGAR", "CONDICION", "VENDEDOR", "CAJA", "USUARIO",
+            "TOTALIZAR", "GUARDAR", "REIMPRIME", "DEVOLUCION"
         }
 
         for cl in clusters:
@@ -713,8 +758,26 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
             row_raw_text = " ".join(w["text"].upper().strip() for w in row_words)
             upper_texts = {w["text"].upper().strip() for w in row_words}
             
-            # 1. Omitir fila de encabezados
+            # 1. Omitir fila de encabezados (y ajustar columnas si no se detectaron bordes verticales)
             if len(upper_texts.intersection(header_keywords)) >= 2:
+                if not info.get("v_cols_detected"):
+                    hdr_pos = {w["text"].upper().strip(): w for w in row_words}
+                    if "CANTIDAD" in hdr_pos:
+                        qty_x_min = max(0, int(hdr_pos["CANTIDAD"]["x"] - 25))
+                        if "UNIDAD" in hdr_pos:
+                            qty_x_max = min(img_w, int(hdr_pos["UNIDAD"]["x"] - 4))
+                        else:
+                            qty_x_max = min(img_w, int(hdr_pos["CANTIDAD"]["x"] + hdr_pos["CANTIDAD"]["w"] + 30))
+                        desc_x_max = qty_x_min
+                    if "PRECIO" in hdr_pos:
+                        if "UNIDAD" in hdr_pos:
+                            price_col_x1 = max(0, int(hdr_pos["UNIDAD"]["x"] + hdr_pos["UNIDAD"]["w"] + 4))
+                        else:
+                            price_col_x1 = max(0, int(hdr_pos["PRECIO"]["x"] - 45))
+                        if "TOTAL" in hdr_pos:
+                            price_col_x2 = min(img_w, int(hdr_pos["TOTAL"]["x"] - 15))
+                        else:
+                            price_col_x2 = min(img_w, int(hdr_pos["PRECIO"]["x"] + hdr_pos["PRECIO"]["w"] + 45))
                 continue
 
             # 2. Omitir filas de totales / pie de cuadrícula
@@ -728,7 +791,7 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
             found_qty = None
             desc_tokens = []
 
-            # A) Buscar código de barra en la región izquierda (hasta 35% del ancho)
+            # A) Buscar código de barra en la región izquierda (hasta ref_x_max)
             left_words = [w for w in row_words if w["x"] < ref_x_max]
             for lw in left_words:
                 cleaned_num = re.sub(r"[^\d]", "", lw["text"])
@@ -775,24 +838,31 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
                     desc_tokens.append(txt)
 
             # C) OCR celda por celda de Alta Precisión sobre la columna Precio para este renglón exacto
+            # En Saint Enterprise, row_y_center está en la línea superior del renglón (USD en negrita)
+            # y la línea inferior (+24px) contiene el equivalente en Bs.
             row_y_center = cl["y_center"]
-            cell_h = max(26, int(max(w["h"] for w in row_words) * 2.2))
-            y_cell_top = max(0, int(row_y_center - cell_h // 2))
-            y_cell_bottom = min(crop_main.height, int(row_y_center + cell_h // 2))
+            y_cell_top = max(0, int(row_y_center - 12))
+            y_cell_bottom = min(crop_main.height, int(row_y_center + 32))
+            actual_h = max(1, y_cell_bottom - y_cell_top)
 
             found_price = None
             candidate_prices = []
 
-            if y_cell_bottom > y_cell_top:
-                cell_img = crop_main.crop((price_col_x1, y_cell_top, price_col_x2, y_cell_bottom))
-                cell_up = cell_img.resize((int(cell_img.width * 2.5), int(cell_img.height * 2.5)), Image.Resampling.LANCZOS)
+            if y_cell_bottom > y_cell_top and price_col_x2 > price_col_x1 + 4:
+                from PIL import ImageOps
+                cell_x1 = max(0, price_col_x1 + 2)
+                cell_x2 = min(crop_main.width, price_col_x2 - 1)
+                cell_img = crop_main.crop((cell_x1, y_cell_top, cell_x2, y_cell_bottom))
+                # Añadir margen blanco de 8px para que Windows OCR nunca recorte dígitos pegados al borde derecho
+                cell_pad = ImageOps.expand(cell_img, border=8, fill=(255, 255, 255))
+                cell_up = cell_pad.resize((int(cell_pad.width * 2.5), int(cell_pad.height * 2.5)), Image.Resampling.LANCZOS)
                 res_cell = safe_ocr_recognize_pil(cell_up)
                 
                 for l in res_cell.get("lines", []):
                     for w in l.get("words", []):
                         b = w.get("bounding_rect", {})
-                        xc = (b.get("x", 0) + b.get("width", 0) / 2.0) / 2.5
-                        yc = (b.get("y", 0) + b.get("height", 0) / 2.0) / 2.5
+                        xc = max(0.0, (b.get("x", 0) + b.get("width", 0) / 2.0) / 2.5 - 8.0)
+                        yc = max(0.0, (b.get("y", 0) + b.get("height", 0) / 2.0) / 2.5 - 8.0)
                         txt = str(w.get("text", "")).strip()
                         
                         # Omitir cualquier token que sea indicador de Bolívares cuando se audita en USD
@@ -806,7 +876,7 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
                                 "xc": xc,
                                 "yc": yc,
                                 "text": txt,
-                                "is_lower_half": (yc >= (cell_h * 0.46))
+                                "is_lower_half": (yc >= (actual_h * 0.52))
                             })
 
             # Fallback desde tokens de la fila
@@ -820,11 +890,11 @@ def audit_saint_grid_capture(img, batch_items: list = None, start_global_idx: in
                         if val > 0.0:
                             if found_qty is not None and abs(val - float(found_qty)) < 0.001:
                                 continue
-                            is_lower = (w["y_center"] > cl["y_center"])
+                            is_lower = (w["y_center"] > cl["y_center"] + 8.0)
                             candidate_prices.append({
                                 "val": val,
-                                "xc": w["x"],
-                                "yc": w["y_center"] - (cl["y_center"] - cell_h / 2),
+                                "xc": w["x"] - price_col_x1,
+                                "yc": max(0.0, w["y_center"] - y_cell_top),
                                 "text": txt,
                                 "is_lower_half": is_lower
                             })
