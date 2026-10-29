@@ -627,6 +627,47 @@ def test_codigo_bloqueado_02206705():
     print("-> Pruebas de Bloqueo de Códigos (02206705) completadas al 100%.\n")
 
 
+def test_sigo_odc_bs_usd_extraction():
+    print("--- 13. Probando Extracción de Orden de Compra Sigo (ODC con Bs. y $ alternados) ---")
+    import extractor
+
+    bloque_odc_mixto = (
+        "686464487009\n"
+        "CHUPETA FLIP PHONE POP VARIADA \n"
+        "30G\n"
+        "12.00\n"
+        "1.00\n"
+        "12.00\n"
+        "2.631,11 Bs.\n"
+        "2,96 $\n"
+        "2.631,11 Bs.\n"
+        "2,96 $\n"
+        "31.573,37 Bs.\n"
+        "35,52 $\n"
+    )
+    prod = extractor.parsear_bloque_producto(bloque_odc_mixto)
+    assert prod is not None, "Debe extraer correctamente el bloque ODC con Bs. y $"
+    assert prod["codigo_barra"] == "686464487009"
+    assert prod["cantidad"] == 12
+    assert prod["costo_unitario_bs"] == 2631.11
+    assert prod["costo_unitario_usd"] == 2.96
+    assert prod["total_bs"] == 31573.37
+    assert prod["total_usd"] == 35.52
+    assert prod["descripcion"] == "CHUPETA FLIP PHONE POP VARIADA 30G"
+    print(" [OK] Bloque de producto ODC Sigo con Bs. y $ alternados extraído al 100%.")
+
+    odc_pf = Path(r"C:\Program Files\Facturador Saint\facturas_pdf\ODC- THE KIDS WORLD PORLAMAR 28-10-2026.pdf")
+    if odc_pf.exists():
+        data = extractor.extraer_factura_pdf(str(odc_pf))
+        assert data["factura"] == "ODC-01-019-00018566"
+        assert len(data["productos"]) == 35
+        assert data["totales"]["total_usd"] == 1262.04
+        assert data["totales"]["total_bs"] == 1121814.74
+        print(f" [OK] Archivo real '{odc_pf.name}' extraído: {len(data['productos'])} productos ($ {data['totales']['total_usd']:,.2f}).")
+
+    print("-> Pruebas de ODC Sigo (Bs./$) completadas al 100%.\n")
+
+
 if __name__ == "__main__":
     test_json_files()
     test_engine_config_and_dryrun()
@@ -640,4 +681,5 @@ if __name__ == "__main__":
     test_updater_beta_detection()
     test_grupo_abreu_ocis_extraction()
     test_codigo_bloqueado_02206705()
+    test_sigo_odc_bs_usd_extraction()
     print("=== TODAS LAS PRUEBAS COMPLETADAS EXITOSAMENTE ===")

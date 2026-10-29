@@ -190,7 +190,7 @@ def parsear_bloque_producto(texto_bloque):
     # Contiene 6 valores monetarios consecutivos al final de la fila:
     # Costo emp. Bs., Costo emp. $, Costo ud. Bs., Costo ud. $, Costo total Bs., Costo total $
     # -------------------------------------------------------------
-    money_indices = [i for i, l in enumerate(lineas) if '$' in l]
+    money_indices = [i for i, l in enumerate(lineas) if ('Bs.' in l or '$' in l)]
     if len(money_indices) == 6 and money_indices == list(range(money_indices[0], money_indices[0] + 6)):
         m0 = money_indices[0]
         mid = lineas[1:m0]

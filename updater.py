@@ -18,7 +18,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 # Configuración por defecto del repositorio
-CURRENT_VERSION = "2.65"
+CURRENT_VERSION = "2.66"
 GITHUB_OWNER = "betank434"
 GITHUB_REPO = "bot-facturas"
 USER_AGENT = f"FacturadorSaint-Updater/{CURRENT_VERSION}"

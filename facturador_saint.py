@@ -3481,7 +3481,7 @@ class FacturadorApp:
                 self._log(f"⚡ [EXTRACTOR] Analizando {len(rutas_str)} documento(s)...")
 
                 with contextlib.redirect_stdout(f_out), contextlib.redirect_stderr(f_out):
-                    extractor.procesar_archivos(rutas_str, str(json_dir))
+                    facturas_procesadas = extractor.procesar_archivos(rutas_str, str(json_dir))
 
                 stdout_text = f_out.getvalue()
 
@@ -3491,8 +3491,18 @@ class FacturadorApp:
                     # Registrar líneas clave en el log de la aplicación
                     for line in stdout_text.splitlines():
                         line_clean = line.strip()
-                        if line_clean and any(k in line_clean for k in ("Procesando:", "OK", "Archivos JSON", "Total de productos", "Proceso finalizado")):
+                        if line_clean and any(k in line_clean for k in ("Procesando:", "OK", "Omitido", "ERROR", "Archivos JSON", "Total de productos", "Proceso finalizado")):
                             self._log(f"⚡ {line_clean}")
+
+                    if not facturas_procesadas:
+                        self._log("⚠️ [EXTRACTOR] Ningún documento contenía productos extraíbles.")
+                        messagebox.showwarning(
+                            "Sin Productos Extraídos",
+                            "⚠️ No se pudieron extraer productos de los archivos en 'facturas_pdf/'.\n\n"
+                            "Verifica en el registro inferior si el documento tiene un formato válido.",
+                            parent=self.root
+                        )
+                        return
 
                     # Refrescar los archivos JSON y seleccionar el más nuevo
                     prev_files = set(self.cbo_facturas["values"]) if self.cbo_facturas["values"] else set()
