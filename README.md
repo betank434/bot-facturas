@@ -39,7 +39,7 @@ compilar_todo.bat
 
 ## 🛠️ Arquitectura y Características
 
-- **Extracción Multiformato (PDF y Excel)**: Extracción de alta precisión con PyMuPDF y `openpyxl` para Sigo (`FTC` / `ODC`), Grupo Abreu / Hiper Ahorro Aikoz / Mas X Menos (`OCIS`), Norkut Cloud (`#ODC`), Guuao y presupuestos Excel (`.xlsx` / `.xls`), con normalización automática de códigos de barra a 8 y 12 dígitos.
+- **Extracción Multiformato (PDF y Excel)**: Extracción de alta precisión con PyMuPDF y `openpyxl` para Sigo (`FTC` / `ODC` con soporte dual para valores en `$` y `Bs.`), Grupo Abreu / Hiper Ahorro Aikoz / Mas X Menos (`OCIS`), Norkut Cloud (`#ODC`), Guuao y presupuestos Excel (`.xlsx` / `.xls`), con normalización automática de códigos de barra a 8 y 12 dígitos y validación preventiva ante documentos sin productos.
 - **Motor de Teclado Saint**: Inyección de eventos a nivel de sistema mediante `pynput` y `ctypes`, con soporte de atajos globales (`F8`: Iniciar, `F7`: Pausar, `F12`: Detener).
 - **Auditoría OCR en Tiempo Real**: Validación multinivel mediante `winocr` nativo de Windows 10/11. Panel detallado de discrepancias (faltantes, ajenos y diferencias de precio en USD vs Bs) con ciclo de vida seguro que preserva la visibilidad y foco de Facturador Saint.
 - **Intercambio y Bloqueo de Códigos (`🚫 No Facturar`)**: Pestaña integrada para intercambiar códigos equivalentes o bloquear productos específicos (ej. `02206705`) con alerta preventiva automática al cargar facturas JSON antes de iniciar la facturación.

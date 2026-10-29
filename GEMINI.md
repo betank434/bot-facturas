@@ -23,9 +23,9 @@ Ver detalles completos y arquitectura en [AGENTS.md](AGENTS.md).
 8. **Actualizaciones Finales vs Betas**:
    - `_auto_check_updates()` al inicio NUNCA notifica betas (solo versiones finales). Las versiones Beta solo se buscan y descargan cuando el usuario pulsa deliberadamente el botón `🧪 Descargar Beta` en la cabecera.
 9. **Compilación y Nomenclatura de Betas**:
-   - Para versiones Beta usar `compilar_beta.bat` con nomenclatura `vX.XX.1-beta`, `vX.XX.2-beta`, etc. (ej: sobre 2.62, las betas son `v2.62.1-beta`). La versión final siguiente será `v2.63` (compilada con `compilar_todo.bat`).
-10. **Formatos Soportados en `extractor.py`**:
-   - Sigo (`FTC-...` / `ODC-...`), Grupo Abreu / Aikoz / Mas X Menos (`Nro OCIS...`), Norkut Cloud (`#ODC...`), Guuao (`Orden de compra #P...`) y Presupuestos Excel (`.xlsx` / `.xls`). Siempre preservar todos los formatos existentes al añadir uno nuevo.
+   - Para versiones Beta usar `compilar_beta.bat` con nomenclatura `vX.XX.1-beta`, `vX.XX.2-beta`, etc. (ej: sobre 2.66, las betas son `v2.66.1-beta`). La versión final siguiente será `v2.67` (compilada con `compilar_todo.bat`).
+10. **Formatos Soportados en `extractor.py` y Validación**:
+   - Sigo (`FTC-...` / `ODC-...` con soporte dual para valores en `$` y `Bs.`), Grupo Abreu / Aikoz / Mas X Menos (`Nro OCIS...`), Norkut Cloud (`#ODC...`), Guuao (`Orden de compra #P...`) y Presupuestos Excel (`.xlsx` / `.xls`). Al presionar `⚡ Ejecutar Extractor`, si un archivo no arroja ítems, se avisa al usuario y se registra en log para evitar falsos positivos de éxito. Siempre preservar todos los formatos existentes al añadir uno nuevo.
 11. **Seguridad y Privacidad**:
    - Jamás escribir tokens de GitHub en archivos ni en `.git/config` (solo lectura en RAM vía `CredReadW` en `preparar_version.py`, el cual no se incluye en `FacturadorSaint.exe`). Mantener siempre excluidos `facturas_pdf/*`, `facturas_json/*` y `cache_capturas/*` en `.gitignore` y en el instalador.
 

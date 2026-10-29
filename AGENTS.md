@@ -95,7 +95,7 @@ Cualquier agente que trabaje en este repositorio en cualquier PC debe seguir est
 
 ### G. Formatos de Documentos Soportados (`extractor.py`)
 El motor de extracción detecta y procesa automáticamente los siguientes formatos (sin romper ninguno al agregar nuevos):
-1. **Sigo, S.A. - Facturas de Consignación (`FTC-...`) y Órdenes de Compra (`ODC-...`)**: Extracción de precios en Bs. y USD, tasa de cambio y normalización de códigos a 8 y 12 dígitos.
+1. **Sigo, S.A. - Facturas de Consignación (`FTC-...`) y Órdenes de Compra (`ODC-...`)**: Extracción de precios en Bs. y USD, tasa de cambio y normalización de códigos a 8 y 12 dígitos. En órdenes de compra (`ODC`), soporte dual robusto para documentos donde Sigo imprime `$` en las 6 columnas monetarias o donde alterna montos en Bolívares (`... Bs.`) y montos en dólares (`... $`).
 2. **Grupo Abreu / Hiper Ahorro Aikoz / Mas X Menos (`Nro OCIS...` - Inversiones Barcelona Oriente 20.22 / 20.23, C.A)**:
    - Función `extraer_orden_compra_grupo_abreu(doc, ruta_pdf)`.
    - Extrae `Nro OCIS...`, `RIF`, `Sucursal` (almacén), `Razon Social` (cliente), `Fecha Emisión` y `Moneda` (`$ - Dolar`).
@@ -103,6 +103,7 @@ El motor de extracción detecta y procesa automáticamente los siguientes format
 3. **Norkut Cloud (`Documento: #ODC...` / Sigo Boca del Río)**: Función `extraer_orden_compra_norkut(doc, ruta_pdf)`, calcula tasa de cambio implícita desde el resumen `VES / USD`.
 4. **Guuao (`Orden de compra #P...`)**: Función `extraer_orden_compra_guuao(doc, ruta_pdf)` para órdenes expresadas únicamente en Bolívares (`moneda: "VES"`).
 5. **Presupuestos y Catálogos en Excel (`.xlsx` / `.xls`)**: Función `extraer_presupuesto_excel(ruta_excel)`.
+6. **Validación y Diagnóstico de Extracción en UI**: Al presionar `⚡ Ejecutar Extractor`, si algún documento no contiene productos extraíbles o es omitido, el sistema registra el motivo exacto en la bitácora inferior y despliega un cuadro de diálogo preventivo en lugar de reportar falsos positivos de éxito.
 
 ### H. Seguridad de Credenciales y Protección de Datos (Regla Estricta)
 - **Cero Credenciales en Código**: Está terminantemente prohibido escribir tokens, claves o contraseñas de GitHub en ningún archivo del repositorio (`.py`, `.bat`, `.iss`, `.json`, `.md` ni `.git/config`).
@@ -115,7 +116,7 @@ El motor de extracción detecta y procesa automáticamente los siguientes format
 ## 4. Procedimiento para Lanzar una Nueva Versión Final (Release Oficial en 1 Clic)
 
 1. **Ejecutar doble clic en `compilar_todo.bat` (100% Automatizado de principio a fin)**:
-   - Consulta la versión actual en archivos y en GitHub Releases, sube automáticamente a la siguiente versión Final (ej: de `2.62` a `2.63`) y actualiza `updater.py` e `instalador.iss`.
+   - Consulta la versión actual en archivos y en GitHub Releases, sube automáticamente a la siguiente versión Final (ej: de `2.66` a `2.67`) y actualiza `updater.py` e `instalador.iss`.
    - Genera el icono oficial (`app_icon.ico`), compila con PyInstaller y empaqueta el instalador con Inno Setup en `dist_installer\Instalador_Facturador_Saint_vX.XX.exe`.
    - **Genera el commit en Git y hace `git push origin main` automáticamente** usando el token de Windows Credential Manager (`CredReadW` sin bloqueos ni ventanas emergentes).
    - **Crea automáticamente el Release Oficial (`vX.XX`, `prerelease: False`) en GitHub y sube el instalador `.exe`** (`Instalador_Facturador_Saint_vX.XX.exe`) vía API de GitHub.
@@ -126,10 +127,10 @@ Al abrir cualquier cliente con una versión anterior (incluso usuarios que esté
 
 ## 5. Procedimiento para Compilar y Publicar Versiones Beta (1 Clic)
 
-Las versiones Beta trabajan directamente sobre la versión actual utilizando la nomenclatura `vX.XX.1-beta`, `vX.XX.2-beta`, etc. (ej: sobre la `2.62`, las betas son `v2.62.1-beta`, `v2.62.2-beta`), y cuando se terminen las pruebas, la versión definitiva será `v2.63`.
+Las versiones Beta trabajan directamente sobre la versión actual utilizando la nomenclatura `vX.XX.1-beta`, `vX.XX.2-beta`, etc. (ej: sobre la `2.66`, las betas son `v2.66.1-beta`, `v2.66.2-beta`), y cuando se terminen las pruebas, la versión definitiva será `v2.67`.
 
 1. **Ejecutar doble clic en `compilar_beta.bat` (100% Automatizado de principio a fin)**:
-   - Sube automáticamente la versión a la siguiente Beta (ej: `2.62.1-beta`) y la actualiza en `updater.py` e `instalador.iss`.
+   - Sube automáticamente la versión a la siguiente Beta (ej: `2.66.1-beta`) y la actualiza en `updater.py` e `instalador.iss`.
    - Genera el icono, compila con PyInstaller y empaqueta con Inno Setup en `dist_installer\Instalador_Facturador_Saint_vX.XX.X-beta.exe`.
    - **Genera el commit en Git y hace `git push origin main` automáticamente**.
    - **Crea automáticamente el Release Beta en GitHub con `prerelease: True` (`[X] Set as a pre-release`) y sube el instalador `.exe`** (`Instalador_Facturador_Saint_vX.XX.X-beta.exe`).
